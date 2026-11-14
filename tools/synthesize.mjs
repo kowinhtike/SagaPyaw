@@ -8,7 +8,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { NaraSynthesizer, encodeWav } from '../dist/nara-g2p.mjs';
+import { SagaSynthesizer, encodeWav } from '../dist/sagapyaw.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
@@ -39,7 +39,7 @@ const [encoder, decoder, metadata] = [
   JSON.parse(readFileSync(join(modelDir, 'voice.json'), 'utf8')),
 ];
 
-const synth = await NaraSynthesizer.create(
+const synth = await SagaSynthesizer.create(
   ort,
   { encoder: new Uint8Array(encoder), decoder: new Uint8Array(decoder), metadata },
   { executionProviders: ['wasm'], graphOptimizationLevel: 'all' },

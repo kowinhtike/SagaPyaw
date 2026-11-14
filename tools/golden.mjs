@@ -6,7 +6,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { textToPhonemes } from '../dist/nara-g2p.mjs';
+import { textToPhonemes } from '../dist/sagapyaw.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const read = (name) => JSON.parse(readFileSync(join(here, name), 'utf8'));

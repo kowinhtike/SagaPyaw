@@ -10,7 +10,7 @@ const result = await build({
   format: 'esm',
   target: ['es2022'],
   platform: 'neutral',
-  outfile: 'dist/nara-g2p.mjs',
+  outfile: 'dist/sagapyaw.mjs',
   loader: { '.tsv': 'text' },
   legalComments: 'none',
   minify: false,
@@ -18,7 +18,7 @@ const result = await build({
 });
 
 const bytes = Object.values(result.metafile.outputs)[0].bytes;
-console.log(`dist/nara-g2p.mjs  ${(bytes / 1024).toFixed(1)} KB`);
+console.log(`dist/sagapyaw.mjs  ${(bytes / 1024).toFixed(1)} KB`);
 
 await copyFile('src/data/tables.json', 'dist/tables.json');
 

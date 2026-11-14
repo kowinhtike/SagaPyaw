@@ -1,10 +1,10 @@
 {
-  "name": "nara-g2p",
+  "name": "sagapyaw",
   "version": "0.1.0",
-  "description": "Burmese text frontend (G2P) for YeeNyunn/nara-mini-v1, ported to TypeScript for browser use",
+  "description": "SagaPyaw — Burmese text-to-speech that runs entirely in the browser. Text frontend (G2P) and ONNX inference for YeeNyunn/nara-mini-v1, in TypeScript",
   "type": "module",
-  "main": "./dist/nara-g2p.mjs",
-  "module": "./dist/nara-g2p.mjs",
+  "main": "./dist/sagapyaw.mjs",
+  "module": "./dist/sagapyaw.mjs",
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
@@ -28,6 +28,7 @@
     "build:site": "node tools/fetch_models.mjs && node tools/build.mjs && node tools/pack.mjs --with-models --split 20"
   },
   "keywords": [
+    "sagapyaw",
     "burmese",
     "myanmar",
     "g2p",

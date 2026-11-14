@@ -1,4 +1,4 @@
-# AGENTS.md — working on nara-g2p
+# AGENTS.md — working on SagaPyaw
 
 Context for any AI agent (or human) picking this repo up. Read this before changing code:
 several invariants here are not obvious and are easy to break in ways that only show up on a
@@ -11,9 +11,14 @@ no API keys, no server-side inference: the ONNX weights ship with the site, get 
 device once, and inference runs in a WASM worker. The repo also contains a TypeScript port of
 the model's Python text frontend (G2P) that is verified to be bit-identical to the original.
 
+- Name: **SagaPyaw** (`စကားပြော` — "speech"). Package `sagapyaw`, bundle
+  `dist/sagapyaw.mjs`, class `SagaSynthesizer`, caches `sagapyaw-*`. The *model* keeps its own
+  name everywhere it appears; do not rename `nara-mini-v1` or `src/naraNames.ts`.
 - Model: `YeeNyunn/nara-mini-v1` (Apache-2.0), Kokoro-style encoder + decoder, 24 kHz mono.
 - Product: one page (`web/index.html`), one button. Everything else is tooling.
 - The UI copy is Burmese. Keep it that way unless asked.
+- `web/index.html` credits the model repo in a footer; that link is the only outbound one on
+  the page and should stay.
 
 ## Hard rules
 
@@ -37,8 +42,8 @@ Break one of these and the app silently degrades instead of failing loudly.
 5. **Memory is the binding constraint on phones.** At most one ONNX graph in memory at a time
    (`web/index.html` loads encoder, builds the session, then loads decoder). Never hold two
    copies of the 181 MB weights, never `arrayBuffer()` a model file that is also cached.
-6. **Cache names are user data.** `nara-model-v1` (Cache API) holds the 181 MB of weights and
-   `nara-shell-v1` (service worker) holds the app shell. Changing what a URL *means* requires
+6. **Cache names are user data.** `sagapyaw-model-v1` (Cache API) holds the 181 MB of weights and
+   `sagapyaw-shell-v1` (service worker) holds the app shell. Changing what a URL *means* requires
    bumping the cache name, otherwise returning users keep stale bytes forever. Never put the
    model inside the service worker cache.
 7. **iOS specifics.** `AudioContext` must be created/resumed inside a user gesture, and
@@ -55,7 +60,7 @@ Break one of these and the app silently degrades instead of failing loudly.
 ```
 src/                TypeScript text frontend + inference (the library)
   g2pMy.ts          Burmese G2P, ported from reference/ — treat as frozen
-  inference.ts      NaraSynthesizer: runPiece / synthesizeStream / synthesize / encodeWav
+  inference.ts      SagaSynthesizer: runPiece / synthesizeStream / synthesize / encodeWav
   index.ts          textToPhonemes() convenience wrapper
 web/                the client
   index.html        THE APP. One page: textarea, one button, player, download
@@ -92,7 +97,7 @@ site cross-origin isolated — do not delete them, and if you change a header ch
 Deploying from git works because `models/` is gitignored and fetched at build time; the
 weights can never be committed (GitHub rejects files over 100 MB and `decoder.onnx` is 107 MB).
 
-`npm run build` is required after editing `src/` — the browser imports `dist/nara-g2p.mjs`,
+`npm run build` is required after editing `src/` — the browser imports `dist/sagapyaw.mjs`,
 not the TypeScript. Editing `web/*.html` needs no build, only a refresh (or `pack` to redeploy).
 
 ## How the app works

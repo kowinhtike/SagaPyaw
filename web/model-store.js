@@ -9,7 +9,7 @@
  *      when it is refused.
  */
 
-const CACHE = 'nara-model-v1';
+const CACHE = 'sagapyaw-model-v1';
 
 export function cacheAvailable() {
   return typeof caches !== 'undefined';

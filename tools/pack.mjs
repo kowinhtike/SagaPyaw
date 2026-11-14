@@ -48,7 +48,7 @@ await cp(join(root, 'dist'), join(site, 'dist'), { recursive: true });
 async function promote(name, out) {
   const html = await readFile(join(root, 'web', name), 'utf8');
   const rewritten = html
-    .replaceAll("'../dist/nara-g2p.mjs'", "'./dist/nara-g2p.mjs'")
+    .replaceAll("'../dist/sagapyaw.mjs'", "'./dist/sagapyaw.mjs'")
     .replaceAll("'../dist/", "'./dist/")
     .replaceAll('`../models/${', '`./models/${')
     // Tell model-store.js to read the manifest first: avoids a guaranteed 404 on

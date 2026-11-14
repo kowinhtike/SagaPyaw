@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="icon" href="data:," />
-<title>nara-g2p · မြန်မာစာ → phoneme</title>
+<title>SagaPyaw · မြန်မာစာ → phoneme</title>
 <style>
   :root {
     --bg: #0f1115;
@@ -67,7 +67,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>nara-g2p <span>· မြန်မာစာ → phoneme</span></h1>
+  <h1>SagaPyaw <span>· မြန်မာစာ → phoneme</span></h1>
   <div class="sub">YeeNyunn/nara-mini-v1 အတွက် text frontend (TypeScript port)။ ရလဒ်ကို Python reference နဲ့ ၁၀၀% တိုက်စစ်ထားပါတယ်။</div>
 
   <div class="samples" id="samples"></div>
@@ -86,13 +86,13 @@
   </div>
 
   <div class="hint">
-    ဤစာမျက်နှာက <code>dist/nara-g2p.mjs</code> ကို တိုက်ရိုက် import လုပ်ပါတယ်။
+    ဤစာမျက်နှာက <code>dist/sagapyaw.mjs</code> ကို တိုက်ရိုက် import လုပ်ပါတယ်။
     token id တွေက <code>voice.json</code> ရဲ့ vocab နဲ့ ချိတ်ထားပါတယ် — အနီ/လိမ္မော်ရောင် chip ဆိုရင် မော်ဒယ်မှာ အဲဒီအသံ မပါဘူး။
   </div>
 </div>
 
 <script type="module">
-import { textToPhonemes, missingEnglishCount, resetMissingEnglishCount } from '../../dist/nara-g2p.mjs';
+import { textToPhonemes, missingEnglishCount, resetMissingEnglishCount } from '../../dist/sagapyaw.mjs';
 
 const SAMPLES = [
   'မင်္ဂလာပါ။',

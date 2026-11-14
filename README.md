@@ -1,6 +1,10 @@
-# nara-g2p
+# SagaPyaw · စကားပြော
 
-Burmese text frontend **and** client-side inference for
+Burmese text-to-speech that runs **entirely in the browser** — no backend, no API keys, no
+server-side inference. The weights ship with the site, get cached on the device once, and
+inference runs in a WASM worker.
+
+SagaPyaw is a Burmese text frontend **and** client-side inference for
 [`YeeNyunn/nara-mini-v1`](https://huggingface.co/YeeNyunn/nara-mini-v1), ported from the
 model's Python release to TypeScript so the whole pipeline runs in a browser.
 
@@ -98,12 +102,12 @@ In the browser:
 
 ```js
 import * as ort from './vendor/ort.wasm.bundle.min.mjs';
-import { NaraSynthesizer, encodeWav } from './dist/nara-g2p.mjs';
+import { SagaSynthesizer, encodeWav } from './dist/sagapyaw.mjs';
 
 ort.env.wasm.wasmPaths = new URL('./vendor/', document.baseURI).href;
 ort.env.wasm.numThreads = self.crossOriginIsolated ? 4 : 1;
 
-const synth = await NaraSynthesizer.create(ort, {
+const synth = await SagaSynthesizer.create(ort, {
   encoder: new Uint8Array(await (await fetch('models/shoon/encoder.onnx')).arrayBuffer()),
   decoder: new Uint8Array(await (await fetch('models/shoon/decoder.onnx')).arrayBuffer()),
   metadata: await (await fetch('models/shoon/voice.json')).json(),
@@ -122,8 +126,8 @@ const samples = await synth.synthesize('မင်္ဂလာပါ။'); // Flo
 | `replaceNames(text)` | Romanised Burmese names → pre-phonemised IPA |
 | `g2p(text)` | Syllable-level output (`k-a-˧` style), for debugging |
 | `splitSpeech(text, limit)` | Chunking that mirrors `split_speech()` |
-| `NaraSynthesizer.create(ort, model)` | Builds encoder/decoder sessions |
-| `NaraSynthesizer.fromSessions(ort, enc, dec, meta)` | When you build sessions yourself (one graph at a time) |
+| `SagaSynthesizer.create(ort, model)` | Builds encoder/decoder sessions |
+| `SagaSynthesizer.fromSessions(ort, enc, dec, meta)` | When you build sessions yourself (one graph at a time) |
 | `synth.synthesize(text)` | → `Float32Array` PCM, 24 kHz mono |
 | `synth.synthesizeStream(text, opts)` | → async generator of playable chunks |
 | `planChunks(text, limit, firstLimit)` | The chunk plan, exposed for tests and UIs |

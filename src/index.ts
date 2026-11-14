@@ -1,5 +1,5 @@
 /**
- * nara-g2p — Burmese text frontend for YeeNyunn/nara-mini-v1, in TypeScript.
+ * SagaPyaw — Burmese text frontend for YeeNyunn/nara-mini-v1, in TypeScript.
  *
  * Faithful port of the reference Python frontend so the same text produces the
  * same phoneme string (and therefore the same model input) in a browser.

@@ -1417,7 +1417,7 @@ function encodeWav(samples, sampleRate) {
   }
   return bytes;
 }
-var NaraSynthesizer = class _NaraSynthesizer {
+var SagaSynthesizer = class _SagaSynthesizer {
   constructor(ort, encoder, decoder, metadata) {
     this.ort = ort;
     this.encoder = encoder;
@@ -1429,14 +1429,14 @@ var NaraSynthesizer = class _NaraSynthesizer {
       ort.InferenceSession.create(model.encoder, sessionOptions),
       ort.InferenceSession.create(model.decoder, sessionOptions)
     ]);
-    return new _NaraSynthesizer(ort, encoder, decoder, model.metadata);
+    return new _SagaSynthesizer(ort, encoder, decoder, model.metadata);
   }
   /**
    * Build from sessions the caller created itself. Lets a browser load one graph
    * at a time and drop its bytes before the next one, which halves peak memory.
    */
   static fromSessions(ort, encoder, decoder, metadata) {
-    return new _NaraSynthesizer(ort, encoder, decoder, metadata);
+    return new _SagaSynthesizer(ort, encoder, decoder, metadata);
   }
   get sampleRate() {
     return this.metadata.sample_rate;
@@ -1585,7 +1585,7 @@ function textToPhonemes(text, options = {}) {
 export {
   IPA_RE,
   MissingKeyError,
-  NaraSynthesizer,
+  SagaSynthesizer,
   SylParseError,
   WORDISH_RE,
   encodeWav,

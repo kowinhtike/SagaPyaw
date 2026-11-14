@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** Quick CLI: node tools/cli.mjs "မင်္ဂလာပါ။" */
-import { textToPhonemes } from '../dist/nara-g2p.mjs';
+import { textToPhonemes } from '../dist/sagapyaw.mjs';
 
 const text = process.argv.slice(2).join(' ') || 'မင်္ဂလာပါ။';
 const { phon, errors } = textToPhonemes(text);

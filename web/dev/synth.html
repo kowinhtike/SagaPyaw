@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="icon" href="data:," />
-<title>nara-mini-v1 · shoon · browser TTS</title>
+<title>SagaPyaw · nara-mini-v1 · browser TTS</title>
 <style>
   :root {
     --bg: #0f1115; --panel: #171a21; --line: #262b35; --fg: #e6e9ef; --dim: #8b93a3;
@@ -43,7 +43,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>nara-mini-v1 <span>· shoon · ဘရောက်ဇာထဲမှာ TTS</span></h1>
+  <h1>SagaPyaw <span>· nara-mini-v1 · shoon · ဘရောက်ဇာထဲမှာ TTS</span></h1>
   <div class="sub">encoder + decoder (ONNX, 181 MB) ကို ဒေါင်းလုပ်ပြီး လုံးဝ client-side မှာ အသံထုတ်ပါတယ်။ ဆာဗာ မလိုပါ။</div>
 
   <div class="card">
@@ -68,7 +68,7 @@
 
 <script type="module">
 import * as ort from '../vendor/ort.wasm.bundle.min.mjs';
-import { NaraSynthesizer, splitSpeech } from '../../dist/nara-g2p.mjs';
+import { SagaSynthesizer, splitSpeech } from '../../dist/sagapyaw.mjs';
 
 ort.env.wasm.wasmPaths = new URL('../vendor/', document.baseURI).href;
 const isolated = self.crossOriginIsolated === true;
@@ -123,7 +123,7 @@ async function boot() {
   progress(1);
   const t1 = performance.now();
   say(`building sessions … (${((t1 - t0) / 1000).toFixed(1)}s)`);
-  synth = await NaraSynthesizer.create(ort, { encoder, decoder, metadata }, {
+  synth = await SagaSynthesizer.create(ort, { encoder, decoder, metadata }, {
     executionProviders: ['wasm'],
     graphOptimizationLevel: 'all',
   });
@@ -148,7 +148,7 @@ $('go').onclick = async () => {
     const t1 = performance.now();
     const seconds = samples.length / synth.sampleRate;
 
-    const { phon } = (await import('../../dist/nara-g2p.mjs')).textToPhonemes(text);
+    const { phon } = (await import('../../dist/sagapyaw.mjs')).textToPhonemes(text);
     $('phon').textContent = phon;
     $('stats').innerHTML =
       `<span>အသံ <b>${seconds.toFixed(2)}s</b></span>` +

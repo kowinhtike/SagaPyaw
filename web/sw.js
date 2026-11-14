@@ -1,9 +1,9 @@
 /**
  * App-shell cache. Deliberately knows nothing about the 181 MB voice files:
- * those live in the Cache API under `nara-model-v1` and are managed by the page,
+ * those live in the Cache API under `sagapyaw-model-v1` and are managed by the page,
  * so a shell update can never invalidate a model the user already downloaded.
  */
-const SHELL = 'nara-shell-v1';
+const SHELL = 'sagapyaw-shell-v1';
 
 const ASSETS = [
   './index.html',
@@ -12,7 +12,7 @@ const ASSETS = [
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
-  '../dist/nara-g2p.mjs',
+  '../dist/sagapyaw.mjs',
   '../dist/tables.json',
   './vendor/ort.wasm.bundle.min.mjs',
   './vendor/ort-wasm-simd-threaded.mjs',
@@ -43,7 +43,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
       const names = await caches.keys();
-      await Promise.all(names.filter((n) => n.startsWith('nara-shell-') && n !== SHELL).map((n) => caches.delete(n)));
+      await Promise.all(names.filter((n) => n.startsWith('sagapyaw-shell-') && n !== SHELL).map((n) => caches.delete(n)));
       await self.clients.claim();
     })(),
   );

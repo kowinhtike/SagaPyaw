@@ -202,7 +202,7 @@ export function encodeWav(samples: Float32Array, sampleRate: number): Uint8Array
   return bytes;
 }
 
-export class NaraSynthesizer {
+export class SagaSynthesizer {
   private constructor(
     private readonly ort: OrtModuleLike,
     private readonly encoder: OrtSessionLike,
@@ -214,12 +214,12 @@ export class NaraSynthesizer {
     ort: OrtModuleLike,
     model: { encoder: Uint8Array; decoder: Uint8Array; metadata: VoiceMetadata },
     sessionOptions: Record<string, unknown> = {},
-  ): Promise<NaraSynthesizer> {
+  ): Promise<SagaSynthesizer> {
     const [encoder, decoder] = await Promise.all([
       ort.InferenceSession.create(model.encoder, sessionOptions),
       ort.InferenceSession.create(model.decoder, sessionOptions),
     ]);
-    return new NaraSynthesizer(ort, encoder, decoder, model.metadata);
+    return new SagaSynthesizer(ort, encoder, decoder, model.metadata);
   }
 
   /**
@@ -231,8 +231,8 @@ export class NaraSynthesizer {
     encoder: OrtSessionLike,
     decoder: OrtSessionLike,
     metadata: VoiceMetadata,
-  ): NaraSynthesizer {
-    return new NaraSynthesizer(ort, encoder, decoder, metadata);
+  ): SagaSynthesizer {
+    return new SagaSynthesizer(ort, encoder, decoder, metadata);
   }
 
   get sampleRate(): number {
