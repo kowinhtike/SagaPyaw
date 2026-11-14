@@ -65,7 +65,10 @@ Break one of these and the app silently degrades instead of failing loudly.
 9. **Keep it one page.** The user asked explicitly for fewer choices. Do not add pages, tabs or
    mode switches to the shipped UI; put tools under `web/dev/` (never copied into `site/`) and
    add query params (`?voice=`, `?text=`, `?auto=`, `?threads=`, `?prewarm=0`, `?sw=0`) for
-   anything a developer needs.
+   anything a developer needs. The dev panel (`?dev=1`) has a thread picker that sets
+   `?threads=` and reloads — on a big.LITTLE phone 3 threads can beat 4, because the fourth
+   worker lands on a little core and the main thread waits on it. Do not hardcode a different
+   default without measuring on the device that matters.
    The one exception is the voice row between the text box and the button: four voices are
    content, not a mode, and they are always on screen rather than hidden behind a control.
 
@@ -155,6 +158,14 @@ its label becomes **ရပ်** and its colour turns red. Do not add a separate 
 spent its whole life greyed out and made the row look like three equal choices. Export is a
 quiet text button under the primary, not a peer of it: four pills plus two solid buttons plus a
 disabled stop is what made the card read as a wall of controls.
+
+**When realtime falls behind, the app says so once.** After a stream run it computes dead air
+as `(rtf - 1) × audioSeconds` and shows a one-line note suggesting `WAV ထုတ်ပါ` when that
+exceeds 2.5 s. The rule is in dead-air seconds, not in RTF, because the ratio alone is
+misleading: 1.08 over two minutes is an audible pause, 1.08 over ten seconds is not. Measured
+on a phone: RTF 1.51 on an 18 s passage, 1.92 on a 160 s one, against 0.46 on a desktop — so
+this note is what a phone user actually needs. `tools/test_browser.mjs` asserts the rule rather
+than the outcome, so it holds on both.
 
 There is no automatic mode selection any more. `?auto=read` / `?auto=export` drives one button
 for the headless harnesses.

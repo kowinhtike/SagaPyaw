@@ -199,6 +199,11 @@ Everything below is wired up:
 The choice is explicit rather than guessed from the user agent, which is what the earlier
 `decideMode()` did: on a phone it always picked the slow path, so the app felt broken.
 
+When a Realtime run falls behind — measured as dead air, `(RTF − 1) × audio length`, above
+2.5 s — the card says so once and names the export button. On the phone this was measured on,
+that is every passage longer than a few sentences: RTF 1.51 on 18 s, 1.92 on 160 s, against
+0.46 on a desktop.
+
 ### Chunking: where the pauses fall
 
 | `chunking` | Cut points | Used by |

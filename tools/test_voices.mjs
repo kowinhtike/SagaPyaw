@@ -141,6 +141,15 @@ try {
   }));
   check('empty box prompts instead of downloading', /ရိုက်ထည့်ပါ/.test(afterEmptyClick.status) && afterEmptyClick.cached === 0, afterEmptyClick.status.replace(/\s+/g, ' '));
 
+  // The "your device fell behind" note must start out invisible. Its content is
+  // checked where a run actually happens (test_browser); what matters here is
+  // that it never greets a first-time visitor.
+  const hint = await page.evaluate(() => {
+    const el = document.getElementById('hint');
+    return el ? { hidden: el.hidden, text: el.textContent.trim(), display: getComputedStyle(el).display } : null;
+  });
+  check('the fall-behind note exists and starts hidden', Boolean(hint) && hint.hidden && hint.text === '', JSON.stringify(hint));
+
   const layout = await page.evaluate(() => {
     const list = document.getElementById('voiceList');
     const card = list.closest('.card');

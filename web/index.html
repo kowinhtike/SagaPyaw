@@ -108,6 +108,10 @@
   .status:empty { display: none; }
   .status .ok { color: var(--ok); } .status .warn { color: var(--warn); } .status .bad { color: var(--bad); }
   .status code { font-family: var(--mono); font-size: 12px; }
+  /* Appears once, after a run that the measurement says fell behind real time. */
+  .hint { margin: 10px 0 0; font-size: 12.5px; line-height: 1.6; color: var(--warn); }
+  .hint[hidden] { display: none; }
+  .hint b { color: var(--fg); font-weight: 500; }
   .out { display: none; }
   .out.show { display: block; }
   audio { width: 100%; height: 42px; display: block; filter: invert(.92) hue-rotate(180deg); border-radius: 10px; }
@@ -134,6 +138,10 @@
   summary { cursor: pointer; color: var(--dim); font-size: 12px; margin-top: 10px; }
   details .inner { padding-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--dim); }
   details .inner code { font-family: var(--mono); color: var(--accent); }
+  details .inner select {
+    font-family: var(--mono); font-size: 12px; color: var(--fg); background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 6px; padding: 1px 4px; margin-left: 2px;
+  }
   /* Attribution, not navigation: small, quiet, and the only outbound link on the page. */
   footer.credit {
     margin-top: auto; padding-top: 12px; border-top: 1px solid var(--line);
@@ -162,6 +170,7 @@
     <button class="linkbtn" id="export">WAV ထုတ်ပါ ↓</button>
     <div class="bar hide" id="bar"><i></i></div>
     <div class="status" id="status"></div>
+    <p class="hint" id="hint" hidden></p>
   </section>
 
   <section class="card out" id="out">
@@ -465,6 +474,8 @@ async function play(mode) {
 
   setBusy(true);
   stopped = false;
+  // A new run supersedes the last one's advice.
+  $('hint').hidden = true;
   // Two takes at once is never what the user meant: silence whatever is still
   // playing before starting the next run.
   player?.stop();
@@ -545,6 +556,18 @@ async function play(mode) {
         ? '<span class="warn">ရပ်လိုက်တယ်</span>'
         : `<span class="ok">ပြီးပါပြီ</span> · ${file.seconds.toFixed(1)}s အသံ`,
     );
+    // Realtime cannot beat the device. When the measurement says it fell behind,
+    // say so once, at the moment it matters, and name the mode that does not
+    // care how slow the phone is. The size of the problem is not the ratio but
+    // how much dead air it adds up to: RTF 1.08 over two minutes is a pause you
+    // notice, the same ratio over ten seconds is not.
+    const deadAir = Math.max(0, rtf - 1) * audioSeconds;
+    if (mode === 'stream' && !stopped && deadAir >= 2.5) {
+      $('hint').innerHTML =
+        `ဒီစက်မှာ တွက်နှုန်းက အသံထွက်နှုန်းထက် <b>${rtf.toFixed(1)} ဆ</b> နှေးတယ် · ` +
+        'စာသားရှည်ရင် <b>WAV ထုတ်ပါ</b> က ကွက်လပ်မရှိဘူး';
+      $('hint').hidden = false;
+    }
     if (DEV) {
       $('stats').innerHTML =
         (firstAudioMs === null ? '' : `<span>ပထမအသံ <b>${(firstAudioMs / 1000).toFixed(2)}s</b></span>`) +
@@ -705,7 +728,17 @@ async function refreshStorage() {
   const persisted = navigator.storage?.persisted ? await navigator.storage.persisted() : false;
   const parts = [`<span>voice <code>${VOICE}</code></span>`];
   if (DEV) {
-    parts.push(`<span>threads <code>${ort.env.wasm.numThreads}</code> / ${hw} cores</span>`);
+    // A picker, not a fixed number: on a big.LITTLE phone 3 threads can beat 4,
+    // because the fourth worker lands on a little core and the main thread waits
+    // on it. The only way to know is to try both on the device in hand.
+    const threadOptions = [1, 2, 3, 4]
+      .map((n) => `<option value="${n}"${n === ort.env.wasm.numThreads ? ' selected' : ''}>${n}</option>`)
+      .join('');
+    parts.push(
+      isolated
+        ? `<span>threads <select id="thr">${threadOptions}</select> / ${hw} cores</span>`
+        : `<span>threads <code>1</code> / ${hw} cores</span>`,
+    );
     if (est) parts.push(`<span>storage <code>${bytesLabel(est.usage)}</code> / ${bytesLabel(est.quota)}</span>`);
     // "not persisted" reads like an error the user must fix; it is only useful
     // to someone inspecting storage policy.
@@ -713,6 +746,16 @@ async function refreshStorage() {
     parts.push('<button class="ghost" id="clear">cache ရှင်းပါ</button>');
   }
   $('details').innerHTML = parts.join('');
+  const thr = $('thr');
+  if (thr) {
+    thr.onchange = () => {
+      const next = new URLSearchParams(location.search);
+      // Picking the default again should not leave a sticky param behind.
+      if (Number(thr.value) === Math.min(4, hw)) next.delete('threads');
+      else next.set('threads', thr.value);
+      location.search = next.toString();
+    };
+  }
   const clear = $('clear');
   if (clear) {
     clear.onclick = async () => {

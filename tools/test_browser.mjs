@@ -69,6 +69,7 @@ try {
     synth: window.__lastSynth ?? null,
     isolated: self.crossOriginIsolated,
     labels: window.__labels ?? [],
+    hint: document.getElementById('hint').hidden ? null : document.getElementById('hint').textContent.trim(),
   }));
 
   console.log('env      ', result.env);
@@ -102,7 +103,20 @@ try {
   const back = settled === 'ဖတ်ပါ';
   console.log(`button   ${back ? 'ok' : 'FAIL'} · returned to ဖတ်ပါ after the audio drained (${settled})`);
 
-  if (!result.title.startsWith('ok ') || !toggled || !back) process.exitCode = 1;
+  // The fall-behind note is a function of the measurement, not of the machine:
+  // dead air is what realtime cost beyond the length of the audio. Asserting the
+  // rule (rather than "it appeared") keeps this honest on a fast desktop and on
+  // a phone that cannot keep up, without a threshold to tune.
+  const synth = result.synth ?? {};
+  const deadAir = (synth.synthMs ?? 0) / 1000 - (synth.seconds ?? 0);
+  const shouldHint = (synth.mode ?? '') === 'stream' && !synth.stopped && deadAir >= 2.5;
+  const hintOk = Boolean(result.hint) === shouldHint;
+  console.log(
+    `hint     ${hintOk ? 'ok' : 'FAIL'} · ${shouldHint ? 'shown' : 'hidden'} with ${deadAir.toFixed(1)}s dead air` +
+      (result.hint ? ` · ${result.hint.slice(0, 40)}` : ''),
+  );
+
+  if (!result.title.startsWith('ok ') || !toggled || !back || !hintOk) process.exitCode = 1;
 } finally {
   await browser.close();
 }
