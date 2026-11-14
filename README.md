@@ -23,9 +23,13 @@ names Shoon, Thazin, Ko Banyar, Htet Myat). Upstream describes each as *"its own
 matching voicepack"*, and the numbers bear that out: identical file sizes, different
 checksums, and even a different number of length-bin centers (Shoon has 7, the others 8).
 
-Pick one from the chip in the header; the choice is written into the URL (`?voice=thazin`)
+Pick one from the row under the text box; the choice is written into the URL (`?voice=thazin`)
 so it can be shared. Each voice is a full 181 MB encoder + decoder pair, and the cache keeps
 the two most recently used.
+
+The pill borders say what state each voice is in — **green** for the one in use, **blue** for
+downloaded and ready, grey with `⬇ 181.2 MB` for one that still has to be fetched. Green wins
+over blue when the voice in use is also cached.
 
 ## Verification
 
@@ -90,8 +94,8 @@ npm run fetch-models -- --all
 ```
 
 The synthesizer itself is voice-agnostic — `models/<voice>/` is the only thing that changes.
-The page carries a voice chip in the header; `?voice=` does the same thing and is what the
-picker writes into the URL, so a link can point at one voice:
+The page carries a four-voice row under the text box; `?voice=` selects the same voice and is
+what the row writes into the URL, so a link can point at one voice:
 
 ```
 http://localhost:8100/web/index.html?voice=htet-myat
@@ -168,7 +172,7 @@ tests; `tools/verify_audio.py` compares sample counts exactly and correlation in
 
 ## Streaming, cache, phones
 
-`web/index.html` is the whole client — one page, a text box, and a voice chip in the header.
+`web/index.html` is the whole client — one page: a text box, the four-voice row, and a button.
 Everything below is wired up:
 
 | Piece | What it does |
@@ -307,8 +311,8 @@ served entirely from the Cache API.
   identical file sizes, different checksums. Cache with the Cache API / OPFS; brotli only
   saves ~8 %.
 - **Switching voices costs a download.** All four (`shoon`, `thazin`, `htet-myat`,
-  `ko-banyar`) are selectable from the header chip, but the first use of each fetches its own
-  181 MB. Switching *back* to a cached voice is instant.
+  `ko-banyar`) are selectable from the row under the text box, but the first use of each
+  fetches its own 181 MB. Switching *back* to a cached voice is instant.
 - **Only two voices stay cached.** `model-store.js` keeps an LRU list in `localStorage` and
   evicts everything beyond the two most recently used, so picking a third voice silently
   frees the oldest. Without a cap, four voices is 725 MB on disk — over Safari's storage

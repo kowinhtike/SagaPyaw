@@ -15,7 +15,7 @@ the model's Python text frontend (G2P) that is verified to be bit-identical to t
   `dist/sagapyaw.mjs`, class `SagaSynthesizer`, caches `sagapyaw-*`. The *model* keeps its own
   name everywhere it appears; do not rename `nara-mini-v1` or `src/naraNames.ts`.
 - Model: `YeeNyunn/nara-mini-v1` (Apache-2.0), Kokoro-style encoder + decoder, 24 kHz mono.
-- Product: one page (`web/index.html`) — text box, one button, and a voice chip in the header.
+- Product: one page (`web/index.html`) — text box, the four-voice row, one button.
   Everything else is tooling.
 - The UI copy is Burmese. Keep it that way unless asked.
 - `web/index.html` has a two-line footer: the model credit (link to the Hugging Face repo —
@@ -57,9 +57,10 @@ Break one of these and the app silently degrades instead of failing loudly.
    Build-time tools (esbuild, typescript, puppeteer-core) are fine.
 9. **Keep it one page.** The user asked explicitly for fewer choices. Do not add pages, tabs or
    mode switches to the shipped UI; put tools under `web/dev/` (never copied into `site/`) and
-   add query params (`?mode=file`, `?voice=`, `?threads=`) for anything a developer needs.
-   The one exception is the voice picker behind the header chip: four voices are content, not a
-   mode, and it is a disclosure rather than a second screen.
+   add query params (`?mode=file`, `?voice=`, `?threads=`, `?prewarm=0`) for anything a developer
+   needs.
+   The one exception is the voice row between the text box and the button: four voices are
+   content, not a mode, and they are always on screen rather than hidden behind a control.
 
 ## Voices
 
@@ -80,7 +81,7 @@ src/                TypeScript text frontend + inference (the library)
   inference.ts      SagaSynthesizer: runPiece / synthesizeStream / synthesize / encodeWav
   index.ts          textToPhonemes() convenience wrapper
 web/                the client
-  index.html        THE APP. One page: voice chip, textarea, one button, player, download
+  index.html        THE APP. One page: textarea, voice row, one button, player, download
   player.js         StreamPlayer: schedules chunks on the AudioContext clock
   model-store.js    Cache API downloader + split-file reassembly
   sw.js             app-shell cache (never the model)

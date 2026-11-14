@@ -41,26 +41,25 @@
   header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
   /* Brand mark is Latin: use the UI stack, not the Burmese one. */
   h1 { font-size: 18px; margin: 0; letter-spacing: -.02em; display: flex; align-items: center; gap: 8px; font-weight: 600; }
-  /* The voice chip is the only control in the header: tapping it opens the list. */
-  .voicebtn {
-    display: inline-flex; align-items: center; gap: 5px; min-height: 26px;
-    background: transparent; border: 1px solid var(--line); border-radius: 99px;
-    color: var(--dim); font-family: var(--mono); font-size: 12px; font-weight: 400;
-    padding: 1px 9px; cursor: pointer;
-  }
-  .voicebtn i { font-style: normal; font-size: 9px; opacity: .75; }
-  .voicebtn[aria-expanded="true"] { color: var(--fg); border-color: #3a4352; }
-  .voices { display: flex; flex-wrap: wrap; gap: 6px; margin: -2px 0 12px; }
-  /* `display: flex` beats the UA rule for [hidden], so hiding has to be explicit. */
-  .voices[hidden] { display: none; }
+  /* Voice picker: four pills between the text box and the button. The border is
+     the state — green = the voice in use, blue = downloaded and ready, grey =
+     needs another 181 MB. */
+  .voices { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0 0; }
   .voices button {
-    display: inline-flex; align-items: center; gap: 6px; min-height: 34px;
-    background: var(--panel2); border: 1px solid var(--line); border-radius: 10px;
-    color: var(--fg); font-family: inherit; font-size: 13px; padding: 0 10px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 7px; min-height: 36px;
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 11px;
+    color: var(--fg); font-family: inherit; font-size: 13.5px; font-weight: 500;
+    padding: 0 12px; cursor: pointer;
+    transition: border-color .15s ease, color .15s ease;
   }
-  .voices button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
-  .voices button small { font-family: var(--mono); font-size: 10.5px; color: var(--dim); }
-  .voices button[aria-pressed="true"] small { color: var(--accent); }
+  .voices button small { font-family: var(--mono); font-size: 10.5px; font-weight: 400; color: var(--dim); }
+  /* Downloaded: blue. */
+  .voices button.cached { border-color: var(--accent); color: var(--accent); }
+  .voices button.cached small { color: var(--accent); opacity: .8; }
+  /* In use: green, and it outranks blue — "which voice am I hearing" is the
+     question this row answers, and the answer must be the loudest thing on it. */
+  .voices button[aria-pressed="true"] { border-color: var(--ok); color: var(--ok); }
+  .voices button[aria-pressed="true"] small { color: var(--ok); opacity: .8; }
   .envchip { display: none; }
   .envchip.show { display: inline-flex; align-items: center; }
   .envchip .dot { margin-right: 5px; }
@@ -72,14 +71,6 @@
   }
   textarea:focus { border-color: var(--accent); }
   textarea::placeholder { color: var(--dim); }
-  .chips { display: flex; gap: 8px; overflow-x: auto; padding: 10px 0 0; scrollbar-width: none; }
-  .chips::-webkit-scrollbar { display: none; }
-  .chip {
-    flex: 0 0 auto; background: transparent; border: 1px solid var(--line); color: var(--dim);
-    border-radius: 99px; padding: 5px 11px; font-size: 12.5px; font-family: var(--mm); cursor: pointer;
-    white-space: nowrap; min-height: 32px;
-  }
-  .chip:active { border-color: var(--accent); color: var(--accent); }
   .actions { display: flex; gap: 8px; margin-top: 12px; }
   button {
     -webkit-appearance: none; appearance: none; background: #1d222b; color: var(--fg);
@@ -139,20 +130,14 @@
 <body>
 <main>
   <header>
-    <h1>SagaPyaw
-      <button type="button" class="voicebtn" id="voiceBtn" aria-expanded="false" aria-controls="voiceList">
-        <span id="voiceName">shoon</span><i aria-hidden="true">▾</i>
-      </button>
-    </h1>
+    <h1>SagaPyaw</h1>
     <span class="envchip" id="env" hidden></span>
     <button class="ghost" id="install" hidden>ဖုန်းမှာ ထည့်ပါ</button>
   </header>
 
-  <div class="voices" id="voiceList" hidden></div>
-
   <section class="card">
     <textarea id="text" spellcheck="false" autocomplete="off" placeholder="မြန်မာစာ ရိုက်ထည့်ပါ …">မင်္ဂလာပါ။ ဒီနေ့ ရာသီဥတု ကောင်းတယ်။</textarea>
-    <div class="chips" id="chips"></div>
+    <div class="voices" id="voiceList" role="group" aria-label="အသံ"></div>
     <div class="actions">
       <button class="primary" id="go">ဖတ်ပါ</button>
       <button id="stop" disabled>ရပ်</button>
@@ -253,7 +238,6 @@ const setBar = (frac) => {
 const bytesLabel = (n) => n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1024).toFixed(0)} KB`;
 const secs = (ms) => `${(ms / 1000).toFixed(2)}s`;
 
-$('voiceName').textContent = voiceLabel(VOICE);
 document.title = 'SagaPyaw — မြန်မာ အသံ';
 
 /* ---------------------------------------------------------------- model ---- */
@@ -576,30 +560,16 @@ $('stop').onclick = () => {
   say('<span class="warn">ရပ်လိုက်တယ်</span>');
 };
 
-/* ------------------------------------------------------------------ ui ---- */
-
-const EXAMPLES = [
-  'မင်္ဂလာပါ။ ဒီနေ့ ရာသီဥတု ကောင်းတယ်။',
-  'ဈေးနှုန်း 1,234 ကျပ် ပါ။ ငါးရာခိုင်နှုန်း လျှော့ပေးပါ။',
-];
-for (const text of EXAMPLES) {
-  const chip = document.createElement('button');
-  chip.className = 'chip';
-  chip.textContent = text.length > 18 ? `${text.slice(0, 18)}…` : text;
-  chip.onclick = () => { $('text').value = text; $('text').focus(); };
-  $('chips').append(chip);
-}
-
 /* ---------------------------------------------------------------- voices -- */
 
 const voiceList = $('voiceList');
 
-function closeVoices() {
-  voiceList.hidden = true;
-  $('voiceBtn').setAttribute('aria-expanded', 'false');
-}
-
-/** Rebuild the option list with a cached / needs-download marker per voice. */
+/**
+ * One pill per voice, always visible. The border carries the state:
+ *   green  — the voice in use (`aria-pressed`), styled to outrank blue
+ *   blue   — downloaded and ready (`cached`)
+ *   grey   — still needs 181 MB, shown as the size so the cost is not a surprise
+ */
 async function renderVoices() {
   const states = await Promise.all(
     VOICES.map(async (v) => ({
@@ -611,6 +581,8 @@ async function renderVoices() {
     ...states.map((v) => {
       const button = document.createElement('button');
       button.type = 'button';
+      button.dataset.voice = v.id;
+      if (v.cached) button.classList.add('cached');
       button.setAttribute('aria-pressed', String(v.id === VOICE));
       button.innerHTML = `${v.label} <small>${v.cached ? '✓' : `⬇ ${bytesLabel(TOTAL_WEIGHT)}`}</small>`;
       button.onclick = () => selectVoice(v.id);
@@ -638,7 +610,6 @@ function resetOutput() {
 }
 
 async function selectVoice(id) {
-  closeVoices();
   if (id === VOICE) return;
   if (running || loading) {
     say('<span class="warn">အသံ မပြောင်းခင် ခဏ စောင့်ပါ</span>');
@@ -653,7 +624,6 @@ async function selectVoice(id) {
 
   VOICE = id;
   FILES = filesFor(id);
-  $('voiceName').textContent = voiceLabel(id);
   history.replaceState(null, '', `?voice=${encodeURIComponent(id)}`);
   resetOutput();
 
@@ -669,20 +639,8 @@ async function selectVoice(id) {
   renderVoices();
 }
 
-$('voiceBtn').onclick = () => {
-  const opening = voiceList.hidden;
-  voiceList.hidden = !opening;
-  $('voiceBtn').setAttribute('aria-expanded', String(opening));
-  if (opening) renderVoices();
-};
-
-// Tapping anywhere else closes the list; leaving it open over the textarea is
-// how a picker ends up covering the thing the user wanted to tap.
-document.addEventListener('click', (event) => {
-  if (voiceList.hidden) return;
-  if (voiceList.contains(event.target) || $('voiceBtn').contains(event.target)) return;
-  closeVoices();
-});
+// Fill the row on first paint: the cache state decides which pills are blue.
+renderVoices();
 
 $('env').innerHTML = isolated
   ? `<span class="dot ok"></span>${ort.env.wasm.numThreads} threads`
@@ -742,6 +700,9 @@ isCached(Object.values(FILES).map((f) => f.url)).then((cached) => {
     return;
   }
   $('go').textContent = 'ဖတ်ပါ';
+  // `?prewarm=0` keeps the cache check but skips building the sessions. It exists
+  // so the UI can be inspected without 181 MB of weights entering the tab.
+  if (params.get('prewarm') === '0') return;
   ensureModel()
     .then(() => say('<span class="ok">အဆင်သင့်</span>'))
     .catch((err) => say(`<span class="bad">${err.message}</span>`));
