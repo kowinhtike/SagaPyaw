@@ -1,0 +1,156 @@
+# AGENTS.md — working on nara-g2p
+
+Context for any AI agent (or human) picking this repo up. Read this before changing code:
+several invariants here are not obvious and are easy to break in ways that only show up on a
+phone, three days later.
+
+## What this is
+
+A Burmese (Myanmar) text-to-speech client that runs **entirely in the browser**. No backend,
+no API keys, no server-side inference: the ONNX weights ship with the site, get cached on the
+device once, and inference runs in a WASM worker. The repo also contains a TypeScript port of
+the model's Python text frontend (G2P) that is verified to be bit-identical to the original.
+
+- Model: `YeeNyunn/nara-mini-v1` (Apache-2.0), Kokoro-style encoder + decoder, 24 kHz mono.
+- Product: one page (`web/index.html`), one button. Everything else is tooling.
+- The UI copy is Burmese. Keep it that way unless asked.
+
+## Hard rules
+
+Break one of these and the app silently degrades instead of failing loudly.
+
+1. **Never remove the COOP/COEP headers.** `Cross-Origin-Opener-Policy: same-origin` +
+   `Cross-Origin-Embedder-Policy: require-corp` are what enable `SharedArrayBuffer`, which is
+   what gives onnxruntime-web more than one thread. They live in `tools/serve.mjs`,
+   `tools/pack.mjs` (`_headers` and `vercel.json`). Without them the page still *works* — at
+   `threads=1`, roughly half speed, and stuttering on a phone.
+2. **Never test with `python3 -m http.server`.** It sends no COOP/COEP and the wrong MIME for
+   `.wasm`. Use `npm run serve`.
+3. **The G2P output must stay identical to `reference/` (the Python original).**
+   `npm run check` runs 11,854 golden cases; `npm run fuzz` runs 4,000 random ones. If a change
+   alters phonemes, that is a regression unless the reference changed too — never "fix" the
+   golden files to make a test pass.
+4. **The model is not reproducible under WASM.** Same text, same chunk, different run: mean
+   |Δ| ≈ 0.005 against 0.11 RMS. Do not write hash-based or byte-equality audio tests. Compare
+   sample counts exactly and correlation (> 0.99) instead — that is what `tools/verify_audio.py`
+   does.
+5. **Memory is the binding constraint on phones.** At most one ONNX graph in memory at a time
+   (`web/index.html` loads encoder, builds the session, then loads decoder). Never hold two
+   copies of the 181 MB weights, never `arrayBuffer()` a model file that is also cached.
+6. **Cache names are user data.** `nara-model-v1` (Cache API) holds the 181 MB of weights and
+   `nara-shell-v1` (service worker) holds the app shell. Changing what a URL *means* requires
+   bumping the cache name, otherwise returning users keep stale bytes forever. Never put the
+   model inside the service worker cache.
+7. **iOS specifics.** `AudioContext` must be created/resumed inside a user gesture, and
+   `navigator.audioSession.type = 'playback'` is what makes audio ignore the silent switch
+   (iOS 16.4+). Do not move either out of `player.unlock()`.
+8. **No new runtime dependencies.** The shipped bundle is plain ES modules + onnxruntime-web.
+   Build-time tools (esbuild, typescript, puppeteer-core) are fine.
+9. **Keep it one page.** The user asked explicitly for fewer choices. Do not add pages, tabs or
+   mode switches to the shipped UI; put tools under `web/dev/` (never copied into `site/`) and
+   add query params (`?mode=file`, `?voice=`, `?threads=`) for anything a developer needs.
+
+## Layout
+
+```
+src/                TypeScript text frontend + inference (the library)
+  g2pMy.ts          Burmese G2P, ported from reference/ — treat as frozen
+  inference.ts      NaraSynthesizer: runPiece / synthesizeStream / synthesize / encodeWav
+  index.ts          textToPhonemes() convenience wrapper
+web/                the client
+  index.html        THE APP. One page: textarea, one button, player, download
+  player.js         StreamPlayer: schedules chunks on the AudioContext clock
+  model-store.js    Cache API downloader + split-file reassembly
+  sw.js             app-shell cache (never the model)
+  dev/              inspector.html (phoneme/token ids), synth.html (bare demo)
+tools/              build, pack, serve, tests, reference oracle
+reference/          unmodified Python frontend from the model repo (oracle, do not edit)
+models/<voice>/     encoder.onnx, decoder.onnx, voice.json (gitignored, 181 MB per voice)
+dist/               esbuild output, committed so `npm run serve` works without install
+site/               generated deployable bundle
+out/                generated WAVs and screenshots
+```
+
+## Commands
+
+```sh
+npm run serve                 # COOP/COEP static server on :8100 (no install needed)
+npm install                   # only for build/test
+npm run check                 # tsc --noEmit && build && 11,854 golden G2P cases
+npm run fuzz                  # 4,000 random G2P cases against the Python oracle
+npm run synth -- --text "မင်္ဂလာပါ။" --out out/demo.wav
+npm run test:browser          # headless Chromium, stream mode (needs serve on :8100)
+npm run test:wav              # headless Chromium, file mode; saves out/wav-mode.wav
+npm run pack                  # site/, no weights (~11 MB)
+npm run pack:split            # site/, weights included and split to ≤20 MiB per file
+npm run build:site            # CI: fetch models → build → pack:split (what hosts run)
+```
+
+`npm run build:site` is the build command in `netlify.toml` and `vercel.json` (repo root).
+Those two files and the `_headers` written by `pack` are the *only* thing making the deployed
+site cross-origin isolated — do not delete them, and if you change a header change all three.
+Deploying from git works because `models/` is gitignored and fetched at build time; the
+weights can never be committed (GitHub rejects files over 100 MB and `decoder.onnx` is 107 MB).
+
+`npm run build` is required after editing `src/` — the browser imports `dist/nara-g2p.mjs`,
+not the TypeScript. Editing `web/*.html` needs no build, only a refresh (or `pack` to redeploy).
+
+## How the app works
+
+**G2P chain** (`src/index.ts`): `verbalize` (numbers → words) → `prepareNames` → `toTokens`
+(Burmese + English + punctuation tokens) → `phonemize`. Output is a phoneme string that maps
+through `voice.json`'s vocab to token ids.
+
+**Chunking** (`inference.ts: planChunks`): text is split at sentence/clause boundaries under
+200 characters. For streaming, the *first* chunk is cut short at whitespace (default 22 chars)
+so audio starts in about a second; `firstLimit: 0` disables that and matches `synthesize()`.
+
+**Two playback modes, chosen automatically** (`decideMode()` in `web/index.html`):
+
+- `stream` — push each chunk to `StreamPlayer`, which schedules it on the audio clock ahead of
+  the previous one. Fast first audio. Cannot outrun the model: when generation is slower than
+  playback the gaps are audible. This is unavoidable, not a bug.
+- `file` — accumulate every chunk, then play one WAV `Blob` in an `<audio controls>` element.
+  No gaps, seekable. Chosen for phones, un-isolated pages (`threads=1`) and < 8 cores, for
+  passages up to 600 characters.
+
+Both paths end the same way: samples are merged, trailing/leading silence trimmed, peak
+normalised to 0.92 (the model sits at ~0.11 RMS), encoded with `encodeWav()`, and exposed as a
+download. So "streaming" and "download" are always the same take.
+
+**Split weights** (`model-store.js: loadParts`): hosts cap per-file size (Cloudflare Pages:
+25 MiB; the decoder is 107 MB). `pack --split` writes `decoder.onnx.p00…p05` plus
+`decoder.onnx.json` (size, part list, sha256). The client fetches parts into one preallocated
+buffer (peak = size + one part), optionally verifies sha256 (`?verify=1`), then caches the
+assembled file **under the original URL** — so `isCached()` and every later load behave as if
+the file had never been split.
+
+## Verifying a change
+
+1. `npm run check` — must stay green (typecheck + build + 11,854 cases).
+2. `npm run serve`, then open `http://localhost:8100/web/index.html` in a desktop browser.
+   The status line must say `threads 4` (or more), not `threads 1`.
+3. `npm run test:browser` — prints `firstAudioMs`, `RTF`, chunk count, and must end with
+   `document.title` starting `ok `. Expect RTF ≈ 0.7–1.1 on a desktop.
+4. `npm run test:wav` — saves a WAV and prints its size/duration; `RIFF/WAVE`, 24 kHz mono.
+5. `npm run pack:split`, then re-run `test:wav` against `http://localhost:8100/site/index.html`
+   — this exercises the split-reassembly path.
+
+## Known limitations (do not "fix" by guessing)
+
+- **English text is not spoken.** `src/english.ts` tokenises Latin script but there is no
+  espeak-ng WASM G2P behind it; only Burmese is synthesised. This is deliberate and documented.
+- **First load is 181 MB** per voice. It is cached, but a phone may evict it; `persist()` is
+  requested and the UI reports when it is refused.
+- **Phones may reload the tab** while both the model and a long passage are in memory. Nothing
+  in JS can prevent that; keep allocations minimal and free sessions when switching voices.
+- **A voice switch costs another 181 MB.** Encoder + decoder are per-voice and not shareable.
+- **`RTF > 1` on low-end devices is expected.** That is why `file` mode exists.
+
+## Style
+
+- TypeScript, strict, no `any` unless it is in an `OrtTensorLike`-style boundary type.
+- Comments explain *why* (a constraint, a measurement, a browser bug), never *what*. If you add
+  a workaround, name the browser and the symptom.
+- UI strings are Burmese; code identifiers and comments are English.
+- Keep `dist/` committed: it is what makes the zip runnable without `npm install`.

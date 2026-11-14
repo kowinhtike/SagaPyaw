@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="my">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0f1115" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="နာရာ TTS" />
+<link rel="icon" href="data:," />
+<link rel="apple-touch-icon" href="./icons/icon-192.png" />
+<link rel="manifest" href="./manifest.webmanifest" />
+<title>နာရာ TTS — မြန်မာ အသံ</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #12151b; --line: #262b35;
+    --fg: #e6e9ef; --dim: #8b93a3; --accent: #7cc4ff; --ok: #6ee7a8;
+    --warn: #ffb86b; --bad: #ff7a7a;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --mm: "Noto Sans Myanmar", "Padauk", "Myanmar Text", "Myanmar Sangam MN", sans-serif;
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.65 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: calc(16px + var(--safe-t)) 14px calc(24px + var(--safe-b));
+    overscroll-behavior-y: contain;
+  }
+  main { max-width: 600px; margin: 0 auto; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+  h1 { font-size: 18px; margin: 0; letter-spacing: -.01em; display: flex; align-items: center; gap: 8px; font-family: var(--mm); font-weight: 600; }
+  h1 span {
+    color: var(--dim); font-weight: 400; font-size: 12px; font-family: var(--mono);
+    border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px;
+  }
+  .envchip { display: none; }
+  .envchip.show { display: inline-flex; align-items: center; }
+  .envchip .dot { margin-right: 5px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px; margin-bottom: 10px; }
+  textarea {
+    width: 100%; min-height: 96px; resize: vertical; background: var(--panel2);
+    color: var(--fg); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px; font-family: var(--mm); font-size: 17px; line-height: 1.95; outline: none;
+  }
+  textarea:focus { border-color: var(--accent); }
+  textarea::placeholder { color: var(--dim); }
+  .chips { display: flex; gap: 8px; overflow-x: auto; padding: 10px 0 0; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip {
+    flex: 0 0 auto; background: transparent; border: 1px solid var(--line); color: var(--dim);
+    border-radius: 99px; padding: 5px 11px; font-size: 12.5px; font-family: var(--mm); cursor: pointer;
+    white-space: nowrap; min-height: 32px;
+  }
+  .chip:active { border-color: var(--accent); color: var(--accent); }
+  .actions { display: flex; gap: 8px; margin-top: 12px; }
+  button {
+    -webkit-appearance: none; appearance: none; background: #1d222b; color: var(--fg);
+    border: 1px solid var(--line); border-radius: 11px; padding: 0 16px; min-height: 50px;
+    font-size: 16px; font-family: var(--mm); cursor: pointer; touch-action: manipulation;
+  }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button:disabled { opacity: .42; cursor: default; }
+  button.primary { flex: 1; background: #123047; border-color: #23577a; color: var(--accent); font-weight: 500; }
+  button.ghost { background: transparent; color: var(--dim); min-height: 36px; font-size: 13px; padding: 0 10px; }
+  /* No stop control while nothing is running: it appears only when enabled. */
+  #stop { flex: 0 0 auto; min-width: 62px; padding: 0 12px; font-size: 14px; }
+  #stop:disabled { display: none; }
+  .bar { height: 4px; background: var(--panel2); border-radius: 99px; overflow: hidden; margin-top: 12px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .18s linear; }
+  .bar.hide { display: none; }
+  .status { font-size: 13px; color: var(--dim); margin-top: 10px; word-break: break-word; }
+  .status:empty { display: none; }
+  .status .ok { color: var(--ok); } .status .warn { color: var(--warn); } .status .bad { color: var(--bad); }
+  .status code { font-family: var(--mono); font-size: 12px; }
+  .out { display: none; }
+  .out.show { display: block; }
+  audio { width: 100%; height: 42px; display: block; filter: invert(.92) hue-rotate(180deg); border-radius: 10px; }
+  .dl { display: flex; gap: 10px; align-items: center; justify-content: space-between; margin-top: 10px; flex-wrap: wrap; }
+  .dl a {
+    display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px;
+    background: #123047; border: 1px solid #23577a; border-radius: 10px;
+    color: var(--accent); text-decoration: none; font-family: var(--mm); font-size: 14px;
+  }
+  .dl .size { font-family: var(--mono); font-size: 12px; color: var(--dim); }
+  /* Everything below is developer/diagnostic output, off unless ?dev=1. */
+  .devonly { display: none; }
+  body.dev .devonly { display: block; }
+  .stats { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--dim); font-family: var(--mono); }
+  .stats b { color: var(--fg); font-weight: 500; }
+  .phon {
+    font-family: var(--mono); font-size: 12px; color: #9fd0f0; background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; margin-top: 10px;
+    max-height: 92px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+  }
+  .phon:empty { display: none; }
+  .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--dim); margin-right: 6px; vertical-align: middle; }
+  .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.bad { background: var(--bad); }
+  summary { cursor: pointer; color: var(--dim); font-size: 12px; margin-top: 10px; }
+  details .inner { padding-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--dim); }
+  details .inner code { font-family: var(--mono); color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>နာရာ <span id="voiceName">shoon</span></h1>
+    <span class="envchip" id="env" hidden></span>
+    <button class="ghost" id="install" hidden>ဖုန်းမှာ ထည့်ပါ</button>
+  </header>
+
+  <section class="card">
+    <textarea id="text" spellcheck="false" autocomplete="off" placeholder="မြန်မာစာ ရိုက်ထည့်ပါ …">မင်္ဂလာပါ။ ဒီနေ့ ရာသီဥတု ကောင်းတယ်။</textarea>
+    <div class="chips" id="chips"></div>
+    <div class="actions">
+      <button class="primary" id="go">ဖတ်ပါ</button>
+      <button id="stop" disabled>ရပ်</button>
+    </div>
+    <div class="bar hide" id="bar"><i></i></div>
+    <div class="status" id="status"></div>
+  </section>
+
+  <section class="card out" id="out">
+    <audio id="audio" controls preload="metadata"></audio>
+    <div class="dl">
+      <a id="dl" download="nara.wav">WAV ဒေါင်းလုပ်</a>
+      <span class="size" id="size"></span>
+    </div>
+  </section>
+
+  <details id="metaCard">
+    <summary>အခြေအနေ</summary>
+    <div class="inner" id="details"></div>
+    <div class="devonly">
+      <div class="stats" id="stats"></div>
+      <div class="phon" id="phon"></div>
+    </div>
+  </details>
+</main>
+
+<script type="module">
+import * as ort from './vendor/ort.wasm.bundle.min.mjs';
+import { NaraSynthesizer, encodeWav } from '../dist/nara-g2p.mjs';
+import { StreamPlayer } from './player.js';
+import { loadFile, isCached, requestPersistence, storageEstimate, clearModelCache } from './model-store.js';
+
+const SR = 24000;
+const params = new URLSearchParams(location.search);
+const VOICE = params.get('voice') ?? 'shoon';
+const BASE = `../models/${encodeURIComponent(VOICE)}`;
+const FILES = {
+  encoder: { url: `${BASE}/encoder.onnx`, weight: 78_268_090, label: 'encoder' },
+  decoder: { url: `${BASE}/decoder.onnx`, weight: 111_686_677, label: 'decoder' },
+  voice: { url: `${BASE}/voice.json`, weight: 46_300, label: 'voice.json' },
+};
+const TOTAL_WEIGHT = FILES.encoder.weight + FILES.decoder.weight + FILES.voice.weight;
+
+const isolated = self.crossOriginIsolated === true;
+const hw = navigator.hardwareConcurrency || 2;
+const forced = Number(params.get('threads'));
+ort.env.wasm.numThreads = forced > 0 ? forced : isolated ? Math.min(4, hw) : 1;
+ort.env.wasm.wasmPaths = new URL('./vendor/', document.baseURI).href;
+// Run inference in a worker: a 5 s decode on the main thread freezes the page,
+// which on a phone looks like the app has hung and makes "ရပ်" unresponsive.
+ort.env.wasm.proxy = params.get('proxy') !== '0';
+
+const $ = (id) => document.getElementById(id);
+const say = (html) => { $('status').innerHTML = html; };
+// Diagnostics (RTF, tokens, phonemes, storage state) are for whoever is debugging
+// the model, not for people reading text aloud. One query param keeps them out of
+// the way without adding a switch to the UI.
+const devParam = params.get('dev');
+const DEV = (devParam !== null && devParam !== '0') || params.has('auto');
+if (DEV) {
+  document.body.classList.add('dev');
+  // Keep the harness output readable: the diagnostics live inside a closed
+  // <details>, and innerText of a closed details is empty.
+  $('metaCard').open = true;
+  $('env').hidden = false;
+  $('env').classList.add('show');
+}
+const setBar = (frac) => {
+  $('bar').classList.toggle('hide', !(frac > 0 && frac < 1));
+  $('bar').firstElementChild.style.width = `${Math.round(frac * 100)}%`;
+};
+const bytesLabel = (n) => n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1024).toFixed(0)} KB`;
+const secs = (ms) => `${(ms / 1000).toFixed(2)}s`;
+
+$('voiceName').textContent = VOICE;
+document.title = 'နာရာ TTS — မြန်မာ အသံ';
+
+/* ---------------------------------------------------------------- model ---- */
+
+let synth = null;
+let loading = null;
+const fileFrac = new Map();
+
+function overallProgress() {
+  let sum = 0;
+  for (const f of Object.values(FILES)) sum += f.weight * (fileFrac.get(f.label) ?? 0);
+  return sum / TOTAL_WEIGHT;
+}
+
+async function loadBytes(file, phase) {
+  const bytes = await loadFile(file.url, {
+    label: file.label,
+    onProgress: (frac) => {
+      fileFrac.set(file.label, frac);
+      const pct = Math.round(overallProgress() * 100);
+      setBar(overallProgress());
+      say(`${phase} · <b>${pct}%</b> · ${bytesLabel(overallProgress() * TOTAL_WEIGHT)} / ${bytesLabel(TOTAL_WEIGHT)}`);
+    },
+  });
+  fileFrac.set(file.label, 1);
+  return bytes;
+}
+
+async function ensureModel() {
+  if (synth) return synth;
+  if (loading) return loading;
+
+  loading = (async () => {
+    const cached = await isCached(Object.values(FILES).map((f) => f.url));
+    const phase = cached ? 'cache ထဲကနေ ဖတ်နေတယ်' : 'မော်ဒယ် ဒေါင်းလုပ်နေတယ်';
+
+    if (!cached) {
+      say(`${phase} · ပထမအကြိမ်ပါ (${bytesLabel(TOTAL_WEIGHT)})`);
+      requestPersistence().then(refreshStorage);
+    }
+
+    const voiceBytes = await loadBytes(FILES.voice, phase);
+    const metadata = JSON.parse(new TextDecoder().decode(voiceBytes));
+
+    // One graph at a time: on a phone, holding both byte arrays plus two ORT
+    // heaps at once is what pushes a tab over its memory budget.
+    const encBytes = await loadBytes(FILES.encoder, phase);
+    const encoder = await ort.InferenceSession.create(encBytes, {
+      executionProviders: ['wasm'],
+      graphOptimizationLevel: 'all',
+    });
+    const decBytes = await loadBytes(FILES.decoder, phase);
+    const decoder = await ort.InferenceSession.create(decBytes, {
+      executionProviders: ['wasm'],
+      graphOptimizationLevel: 'all',
+    });
+
+    synth = NaraSynthesizer.fromSessions(ort, encoder, decoder, metadata);
+    setBar(1);
+    return synth;
+  })();
+
+  try {
+    return await loading;
+  } finally {
+    loading = null;
+  }
+}
+
+/* --------------------------------------------------------------- player ---- */
+
+let player = null;
+function getPlayer() {
+  if (!player) {
+    player = new StreamPlayer(SR);
+    player.onstate = (state) => {
+      if (state === 'idle' && !running) {
+        $('stop').disabled = true;
+        $('go').disabled = false;
+      }
+    };
+  }
+  return player;
+}
+
+/* ------------------------------------------------------------ wav build ---- */
+
+/** Peak-normalise to 0.92. The model sits around 0.11 RMS, which is quiet. */
+function peakNormalize(samples) {
+  let peak = 0;
+  for (let i = 0; i < samples.length; i += 1) {
+    const v = Math.abs(samples[i]);
+    if (v > peak) peak = v;
+  }
+  if (peak < 1e-4) return 0;
+  const gain = Math.min(4, 0.92 / peak);
+  if (Math.abs(gain - 1) < 0.02) return 1;
+  for (let i = 0; i < samples.length; i += 1) samples[i] = Math.max(-1, Math.min(1, samples[i] * gain));
+  return gain;
+}
+
+/** Drop leading/trailing near-silence, keeping 40 ms of air on each side. */
+function trimSilence(samples, threshold = 0.004) {
+  const pad = Math.round(SR * 0.04);
+  let start = 0;
+  while (start < samples.length && Math.abs(samples[start]) < threshold) start += 1;
+  let end = samples.length - 1;
+  while (end > start && Math.abs(samples[end]) < threshold) end -= 1;
+  if (start >= end) return samples;
+  // Only trim when the silence is long enough to be worth it (>= 80 ms).
+  if (start < SR * 0.08 && samples.length - end < SR * 0.08) return samples;
+  return samples.slice(Math.max(0, start - pad), Math.min(samples.length, end + pad));
+}
+
+function mergeChunks(parts) {
+  let length = 0;
+  for (const p of parts) length += p.length;
+  const merged = new Float32Array(length);
+  let at = 0;
+  for (const p of parts) { merged.set(p, at); at += p.length; }
+  return merged;
+}
+
+let objectUrl = null;
+
+/** Turn the accumulated chunks into one WAV and show it in the player card. */
+function publish(parts, { replay }) {
+  let merged = trimSilence(mergeChunks(parts));
+  const gain = peakNormalize(merged);
+
+  const blob = new Blob([encodeWav(merged, SR)], { type: 'audio/wav' });
+  if (objectUrl) URL.revokeObjectURL(objectUrl);
+  objectUrl = URL.createObjectURL(blob);
+
+  const audio = $('audio');
+  audio.src = objectUrl;
+  // The live stream and the file must never play at the same time.
+  audio.onplay = () => { player?.stop(); };
+
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+  $('dl').href = objectUrl;
+  $('dl').download = `nara-${VOICE}-${stamp}.wav`;
+  $('size').textContent = `${(merged.length / SR).toFixed(1)}s · ${bytesLabel(blob.size)}`;
+  $('out').classList.add('show');
+
+  if (replay) audio.play().catch(() => { /* iOS may want a second tap */ });
+  return { seconds: merged.length / SR, bytes: blob.size, gain };
+}
+
+/* ------------------------------------------------------------------ run ---- */
+
+let running = null;
+let stopped = false;
+
+/**
+ * Streaming starts talking in ~1 s but cannot outrun the model: if a chunk takes
+ * longer to make than it takes to play, the gap is audible. Phones at threads=1
+ * always lose that race, so short passages are rendered to a file first and
+ * played from an <audio> element, which cannot gap. No switch for the user.
+ */
+function decideMode(text) {
+  const forcedMode = params.get('mode');
+  if (forcedMode === 'file' || forcedMode === 'stream') return forcedMode;
+  const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  const weak = !isolated || hw < 8;
+  return (mobile || weak) && text.length <= 600 ? 'file' : 'stream';
+}
+
+async function play() {
+  if (running) return;
+  const text = $('text').value.trim();
+  if (!text) {
+    say('<span class="warn">စာသား ရိုက်ထည့်ပါ</span>');
+    return;
+  }
+
+  const mode = decideMode(text);
+  $('go').disabled = true;
+  stopped = false;
+  $('out').classList.remove('show');
+  const abort = new AbortController();
+  running = { chunks: 0, abort };
+
+  const t0 = performance.now();
+  let firstAudioMs = null;
+  let audioSeconds = 0;
+  let totalTokens = 0;
+  let total = 0;
+  const parts = [];
+  $('phon').textContent = '';
+  $('stats').innerHTML = '';
+
+  try {
+    // Inside the gesture: iOS only lets an AudioContext start from a tap.
+    const p = getPlayer();
+    if (mode === 'stream') await p.unlock();
+
+    const s = await ensureModel();
+    const tReady = performance.now();
+    const initMs = tReady - t0;
+    const gen = s.synthesizeStream(text, {
+      // A short first chunk only helps when it is played immediately.
+      firstLimit: mode === 'stream' ? Number(params.get('first') ?? 22) : 0,
+      signal: abort.signal,
+    });
+
+    say(mode === 'file' ? 'အသံ ထုတ်နေတယ် …' : 'အသံ ထုတ်နေတယ် …');
+    $('stop').disabled = false;
+
+    for (;;) {
+      const { value: chunk, done } = await gen.next();
+      if (done) break;
+      if (stopped) break;
+      parts.push(chunk.samples);
+      if (DEV) $('phon').textContent += `${chunk.phon} `;
+      audioSeconds += chunk.samples.length / SR;
+      totalTokens += chunk.tokens;
+      total = chunk.total;
+      running.chunks = chunk.index + 1;
+
+      if (mode === 'stream') {
+        p.push(chunk.samples);
+        if (firstAudioMs === null) firstAudioMs = performance.now() - t0;
+        say(`<span class="ok">ဖွင့်နေတယ်</span> · အပိုင်း ${chunk.index + 1}/${chunk.total}`);
+      } else {
+        const frac = (chunk.index + 1) / chunk.total;
+        setBar(frac);
+        say(`အသံ ထုတ်နေတယ် … <b>${Math.round(frac * 100)}%</b> · ${audioSeconds.toFixed(1)}s`);
+      }
+      if (DEV) {
+        $('stats').innerHTML =
+          (firstAudioMs === null ? '' : `<span>ပထမအသံ <b>${(firstAudioMs / 1000).toFixed(2)}s</b></span>`) +
+          `<span>အသံ <b>${audioSeconds.toFixed(2)}s</b></span>` +
+          `<span>token <b>${totalTokens}</b></span>`;
+      }
+    }
+
+    if (!parts.length) {
+      say('<span class="warn">ရပ်လိုက်တယ်</span>');
+      return;
+    }
+
+    const file = publish(parts, { replay: mode === 'file' });
+    const wall = performance.now() - t0;
+    const synthMs = performance.now() - tReady;
+    const rtf = synthMs / 1000 / Math.max(audioSeconds, 0.001);
+    setBar(0);
+    say(
+      stopped
+        ? '<span class="warn">ရပ်လိုက်တယ်</span>'
+        : `<span class="ok">ပြီးပါပြီ</span> · ${file.seconds.toFixed(1)}s အသံ`,
+    );
+    if (DEV) {
+      $('stats').innerHTML =
+        (firstAudioMs === null ? '' : `<span>ပထမအသံ <b>${(firstAudioMs / 1000).toFixed(2)}s</b></span>`) +
+        `<span>အသံ <b>${file.seconds.toFixed(2)}s</b></span>` +
+        `<span>RTF <b>${rtf.toFixed(2)}</b></span>` +
+        `<span>ပြင်ဆင် <b>${secs(initMs)}</b></span>` +
+        `<span>ပိုင်း <b>${total}</b></span>` +
+        `<span>ဖိုင် <b>${bytesLabel(file.bytes)}</b></span>` +
+        `<span>ကြာချိန် <b>${secs(wall)}</b></span>`;
+    }
+
+    window.__lastSynth = {
+      mode,
+      seconds: file.seconds,
+      bytes: file.bytes,
+      ms: wall,
+      initMs,
+      synthMs,
+      firstAudioMs: firstAudioMs ?? null,
+      chunks: total,
+      tokens: totalTokens,
+      samples: Math.round(file.seconds * SR),
+      gain: file.gain,
+      stopped,
+    };
+    document.title = `ok ${file.seconds.toFixed(2)}s`;
+  } catch (err) {
+    const msg = String(err?.message ?? err);
+    const missing = /HTTP 404/.test(msg);
+    say(
+      `<span class="bad">${msg}</span>` +
+        (missing
+          ? `<br /><br />မော်ဒယ်ဖိုင် မတွေ့ပါ။ <code>models/${VOICE}/</code> ထဲမှာ ` +
+            '<code>encoder.onnx</code>, <code>decoder.onnx</code>, <code>voice.json</code> ' +
+            'ရှိရမယ်။ မရှိရင် <code>npm run fetch-models</code> ကို run ပါ။'
+          : ''),
+    );
+    document.title = `error ${msg}`;
+  } finally {
+    running = null;
+    $('go').disabled = false;
+    if (!player?.playing) $('stop').disabled = true;
+  }
+}
+
+$('go').onclick = play;
+$('stop').onclick = () => {
+  stopped = true;
+  running?.abort.abort();
+  player?.stop();
+  $('stop').disabled = true;
+  say('<span class="warn">ရပ်လိုက်တယ်</span>');
+};
+
+/* ------------------------------------------------------------------ ui ---- */
+
+const EXAMPLES = [
+  'မင်္ဂလာပါ။ ဒီနေ့ ရာသီဥတု ကောင်းတယ်။',
+  'ဈေးနှုန်း 1,234 ကျပ် ပါ။ ငါးရာခိုင်နှုန်း လျှော့ပေးပါ။',
+];
+for (const text of EXAMPLES) {
+  const chip = document.createElement('button');
+  chip.className = 'chip';
+  chip.textContent = text.length > 18 ? `${text.slice(0, 18)}…` : text;
+  chip.onclick = () => { $('text').value = text; $('text').focus(); };
+  $('chips').append(chip);
+}
+
+$('env').innerHTML = isolated
+  ? `<span class="dot ok"></span>${ort.env.wasm.numThreads} threads`
+  : `<span class="dot warn"></span>threads 1`;
+// The healthy state is not information the user can act on; the degraded state
+// is, because it makes a phone stutter. Show only the warning chip.
+if (!isolated) { $('env').hidden = false; $('env').classList.add('show'); }
+
+async function refreshStorage() {
+  const est = await storageEstimate();
+  const persisted = navigator.storage?.persisted ? await navigator.storage.persisted() : false;
+  const parts = [`<span>voice <code>${VOICE}</code></span>`];
+  if (DEV) {
+    parts.push(`<span>threads <code>${ort.env.wasm.numThreads}</code> / ${hw} cores</span>`);
+    if (est) parts.push(`<span>storage <code>${bytesLabel(est.usage)}</code> / ${bytesLabel(est.quota)}</span>`);
+    // "not persisted" reads like an error the user must fix; it is only useful
+    // to someone inspecting storage policy.
+    parts.push(`<span>${persisted ? '<span class="dot ok"></span>persisted' : '<span class="dot warn"></span>not persisted'}</span>`);
+    parts.push('<button class="ghost" id="clear">cache ရှင်းပါ</button>');
+  }
+  $('details').innerHTML = parts.join('');
+  const clear = $('clear');
+  if (clear) {
+    clear.onclick = async () => {
+      await clearModelCache();
+      location.reload();
+    };
+  }
+}
+refreshStorage();
+
+let installEvent = null;
+addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  installEvent = e;
+  $('install').hidden = false;
+});
+$('install').onclick = async () => {
+  if (!installEvent) return;
+  installEvent.prompt();
+  await installEvent.userChoice;
+  installEvent = null;
+  $('install').hidden = true;
+};
+
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
+}
+
+// Warm up in the background when the model is already on disk: the first tap
+// should be instant, not a 2 second session build.
+isCached(Object.values(FILES).map((f) => f.url)).then((cached) => {
+  if (!cached) {
+    $('go').textContent = 'ဒေါင်းလုပ် · ဖတ်ပါ';
+    say(`${bytesLabel(TOTAL_WEIGHT)} မော်ဒယ်ကို ပထမအကြိမ် ဒေါင်းလုပ်ရမယ် · <b>ဖတ်ပါ</b> နှိပ်ရင် စမယ်`);
+    return;
+  }
+  $('go').textContent = 'ဖတ်ပါ';
+  ensureModel()
+    .then(() => say('<span class="ok">အဆင်သင့်</span>'))
+    .catch((err) => say(`<span class="bad">${err.message}</span>`));
+});
+
+if (params.get('auto')) setTimeout(() => $('go').click(), 80);
+</script>
+</body>
+</html>

@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="my">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" href="data:," />
+<title>nara-mini-v1 · shoon · browser TTS</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --line: #262b35; --fg: #e6e9ef; --dim: #8b93a3;
+    --accent: #7cc4ff; --ok: #6ee7a8; --warn: #ffb86b; --bad: #ff7a7a;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --mm: "Noto Sans Myanmar", "Padauk", "Myanmar Text", "Myanmar Sangam MN", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 32px 20px 64px; }
+  .wrap { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; letter-spacing: -.01em; }
+  h1 span { color: var(--dim); font-weight: 400; }
+  .sub { color: var(--dim); font-size: 13px; margin-bottom: 22px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+  label { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin-bottom: 8px; }
+  textarea { width: 100%; min-height: 88px; resize: vertical; background: #0b0d11; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 12px; font-family: var(--mm); font-size: 17px; line-height: 1.9; outline: none; }
+  textarea:focus { border-color: var(--accent); }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+  button { background: #1d222b; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 9px 16px; font-size: 14px; cursor: pointer; font-family: var(--mm); }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: #123047; border-color: #1f4f6e; color: var(--accent); }
+  .bar { height: 6px; background: #0b0d11; border-radius: 99px; overflow: hidden; margin-top: 12px; display: none; }
+  .bar.on { display: block; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .15s linear; }
+  .status { font-family: var(--mono); font-size: 12.5px; color: var(--dim); margin-top: 10px; white-space: pre-wrap; }
+  .status .ok { color: var(--ok); }
+  .status .warn { color: var(--warn); }
+  .status .bad { color: var(--bad); }
+  .phon { font-family: var(--mono); font-size: 14px; color: var(--accent); background: #0b0d11; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-top: 10px; word-break: break-word; white-space: pre-wrap; min-height: 20px; }
+  .stats { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--dim); margin-top: 10px; }
+  .stats b { color: var(--fg); font-weight: 500; font-family: var(--mono); }
+  .hint { color: var(--dim); font-size: 12px; margin-top: 18px; }
+  .hint code { font-family: var(--mono); color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>nara-mini-v1 <span>· shoon · ဘရောက်ဇာထဲမှာ TTS</span></h1>
+  <div class="sub">encoder + decoder (ONNX, 181 MB) ကို ဒေါင်းလုပ်ပြီး လုံးဝ client-side မှာ အသံထုတ်ပါတယ်။ ဆာဗာ မလိုပါ။</div>
+
+  <div class="card">
+    <label for="text">မြန်မာစာ</label>
+    <textarea id="text" spellcheck="false">မင်္ဂလာပါ။ ဒီနေ့ ရာသီဥတု ကောင်းတယ်။</textarea>
+    <div class="row">
+      <button class="primary" id="go" disabled>အသံထုတ်</button>
+      <button id="stop" disabled>ရပ်</button>
+      <span class="status" id="env"></span>
+    </div>
+    <div class="bar" id="bar"><i></i></div>
+    <div class="status" id="status"></div>
+    <div class="phon" id="phon"></div>
+    <div class="stats" id="stats"></div>
+  </div>
+
+  <div class="hint">
+    ပထမဆုံး ဝင်လာရင် <code>181 MB</code> ဒေါင်းလုပ်ရပါတယ် (cache ဖြစ်ပြီးရင် ဒုတိယအကြိမ် မလိုပါ)။
+    multi-thread အတွက် <code>COOP/COEP</code> header လိုပါတယ် — <code>node tools/serve.mjs</code> နဲ့ ဖွင့်ပါ။
+  </div>
+</div>
+
+<script type="module">
+import * as ort from '../vendor/ort.wasm.bundle.min.mjs';
+import { NaraSynthesizer, splitSpeech } from '../../dist/nara-g2p.mjs';
+
+ort.env.wasm.wasmPaths = new URL('../vendor/', document.baseURI).href;
+const isolated = self.crossOriginIsolated === true;
+ort.env.wasm.numThreads = isolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
+
+const $ = (id) => document.getElementById(id);
+const VOICE = new URLSearchParams(location.search).get('voice') ?? 'shoon';
+const BASE = `../../models/${encodeURIComponent(VOICE)}`;
+document.querySelector('h1 span').textContent = `· ${VOICE} · ဘရောက်ဇာထဲမှာ TTS`;
+const statusEl = $('status');
+const bar = $('bar');
+
+function say(html) { statusEl.innerHTML = html; }
+function progress(frac) {
+  bar.classList.toggle('on', frac > 0 && frac < 1);
+  bar.firstElementChild.style.width = `${Math.round(frac * 100)}%`;
+}
+
+$('env').innerHTML = isolated
+  ? `<span class="ok">crossOriginIsolated</span> · threads=${ort.env.wasm.numThreads}`
+  : `<span class="warn">crossOriginIsolated=false</span> · threads=1 (COOP/COEP မပါ)`;
+
+async function fetchWithProgress(url, label) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${label}: HTTP ${res.status}`);
+  const total = Number(res.headers.get('content-length') ?? 0);
+  if (!res.body || !total) return new Uint8Array(await res.arrayBuffer());
+  const reader = res.body.getReader();
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    out.set(value, at);
+    at += value.length;
+    progress(at / total);
+    say(`downloading ${label} … ${(at / 1048576).toFixed(1)} / ${(total / 1048576).toFixed(1)} MB`);
+  }
+  return out;
+}
+
+let synth = null;
+
+async function boot() {
+  const t0 = performance.now();
+  const [encoder, decoder, metaRes] = await Promise.all([
+    fetchWithProgress(`${BASE}/encoder.onnx`, 'encoder'),
+    fetchWithProgress(`${BASE}/decoder.onnx`, 'decoder'),
+    fetch(`${BASE}/voice.json`),
+  ]);
+  const metadata = await metaRes.json();
+  progress(1);
+  const t1 = performance.now();
+  say(`building sessions … (${((t1 - t0) / 1000).toFixed(1)}s)`);
+  synth = await NaraSynthesizer.create(ort, { encoder, decoder, metadata }, {
+    executionProviders: ['wasm'],
+    graphOptimizationLevel: 'all',
+  });
+  const t2 = performance.now();
+  say(`<span class="ok">ready</span> · download ${((t1 - t0) / 1000).toFixed(1)}s · init ${((t2 - t1) / 1000).toFixed(1)}s`);
+  $('go').disabled = false;
+  if (new URLSearchParams(location.search).get('auto')) $('go').click();
+}
+
+let ctx = null;
+let source = null;
+
+$('go').onclick = async () => {
+  if (!synth) return;
+  $('go').disabled = true;
+  $('stop').disabled = false;
+  const text = $('text').value;
+  try {
+    say('အသံ ထုတ်နေတယ် …');
+    const t0 = performance.now();
+    const samples = await synth.synthesize(text);
+    const t1 = performance.now();
+    const seconds = samples.length / synth.sampleRate;
+
+    const { phon } = (await import('../../dist/nara-g2p.mjs')).textToPhonemes(text);
+    $('phon').textContent = phon;
+    $('stats').innerHTML =
+      `<span>အသံ <b>${seconds.toFixed(2)}s</b></span>` +
+      `<span>ကြာချိန် <b>${((t1 - t0) / 1000).toFixed(2)}s</b></span>` +
+      `<span>RTF <b>${((t1 - t0) / 1000 / seconds).toFixed(2)}</b></span>` +
+      `<span>chunk <b>${splitSpeech(text).length}</b></span>`;
+    say(`<span class="ok">ပြီးပါပြီ</span> · ${((t1 - t0) / 1000).toFixed(2)}s အတွင်း ${seconds.toFixed(2)}s အသံ`);
+
+    ctx = ctx ?? new AudioContext({ sampleRate: synth.sampleRate });
+    if (ctx.state === 'suspended') await ctx.resume();
+    const buffer = ctx.createBuffer(1, samples.length, synth.sampleRate);
+    buffer.copyToChannel(samples, 0);
+    source?.stop();
+    source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    source.onended = () => { $('stop').disabled = true; };
+    source.start();
+    window.__lastSynth = { seconds, ms: t1 - t0, samples: samples.length };
+    document.title = `ok ${seconds.toFixed(2)}s`;
+  } catch (err) {
+    say(`<span class="bad">${err.message}</span>`);
+    document.title = `error ${err.message}`;
+  } finally {
+    $('go').disabled = false;
+  }
+};
+
+$('stop').onclick = () => { source?.stop(); $('stop').disabled = true; };
+
+boot().catch((err) => {
+  const missing = /HTTP 404/.test(err.message);
+  say(
+    `<span class="bad">${err.message}</span>` +
+      (missing
+        ? `<br /><br />မော်ဒယ်ဖိုင် မတွေ့ပါ။ <code>models/${VOICE}/</code> ထဲမှာ ` +
+          '<code>encoder.onnx</code>, <code>decoder.onnx</code>, <code>voice.json</code> ' +
+          `ရှိရမယ်။ မရှိရင် terminal မှာ <code>npm run fetch-models -- --voice ${VOICE}</code> ကို run ပါ။`
+        : ''),
+  );
+});
+</script>
+</body>
+</html>

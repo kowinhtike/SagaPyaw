@@ -1,0 +1,47 @@
+{
+  "name": "nara-g2p",
+  "version": "0.1.0",
+  "description": "Burmese text frontend (G2P) for YeeNyunn/nara-mini-v1, ported to TypeScript for browser use",
+  "type": "module",
+  "main": "./dist/nara-g2p.mjs",
+  "module": "./dist/nara-g2p.mjs",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "data": "python3 tools/export_data.py",
+    "build": "node tools/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "golden": "node tools/golden.mjs",
+    "check": "npm run typecheck && npm run build && npm run golden",
+    "fuzz": "python3 tools/gen_fuzz.py && python3 tools/ref.py fuzz_corpus.json fuzz_expected.json && node tools/golden.mjs fuzz_corpus.json fuzz_expected.json",
+    "fetch-models": "node tools/fetch_models.mjs",
+    "serve": "node tools/serve.mjs 8100",
+    "synth": "node tools/synthesize.mjs",
+    "verify": "python3 tools/verify_audio.py",
+    "test:browser": "node tools/test_browser.mjs \"http://localhost:8100/web/index.html?mode=stream\"",
+    "test:wav": "node tools/test_wav.mjs \"http://localhost:8100/web/index.html?mode=file\"",
+    "pack": "node tools/pack.mjs",
+    "pack:split": "node tools/pack.mjs --with-models --split 20",
+    "build:site": "node tools/fetch_models.mjs && node tools/build.mjs && node tools/pack.mjs --with-models --split 20"
+  },
+  "keywords": [
+    "burmese",
+    "myanmar",
+    "g2p",
+    "tts",
+    "nara-mini",
+    "kokoro"
+  ],
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "puppeteer-core": "^25.17.0",
+    "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "onnxruntime-web": "^1.22.0"
+  }
+}
