@@ -300,8 +300,32 @@ out/            generated WAVs and screenshots
 dist/           build output
 ```
 
+## Credits
+
+| What | Who | Licence |
+|---|---|---|
+| `nara-mini-v1` model + Python text frontend (`reference/`) | [YeeNyunn / Nara Audio](https://huggingface.co/YeeNyunn/nara-mini-v1) | Apache-2.0 |
+| Kokoro-82M, the architecture it was fine-tuned from | [hexgrad](https://huggingface.co/hexgrad/Kokoro-82M) | Apache-2.0 |
+| TypeScript port, browser client, tooling | this repo | Apache-2.0 |
+
+The four voices were built by Nara Audio from synthetic speech; the port neither retrains nor
+modifies them, it only runs the released ONNX graphs.
+
 ## Licence
 
-The port follows the upstream model release, **Apache-2.0**. `reference/` is the original
-Python frontend by YeeNyunn, included unmodified for verification. espeak-ng, if you wire
-it up for English, is GPLv3 and is not bundled here.
+**Apache-2.0** — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+The port follows the upstream model release, so the licence is the same one the model already
+carries; nothing here is more restrictive than the thing it is built on. In practice:
+
+- `reference/` is the original Python frontend by YeeNyunn, included **unmodified** as the
+  verification oracle. It is redistributed under Apache-2.0, not relicensed.
+- **The weights are not in this repo.** `models/` is gitignored; `npm run fetch-models` pulls
+  them from the model release at build time, where they stay under Nara Audio's licence. This
+  is also why the repo is 13 MB instead of 200 MB — and why GitHub accepts the push at all.
+- espeak-ng, if you wire it up for English via `setEnglishG2P()`, is GPLv3 and is not bundled.
+  Supplying one makes its licence your problem, not this repo's.
+
+If you deploy this, the model still belongs to its authors: keep the attribution, and do not
+present the voices as your own.
+

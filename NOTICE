@@ -1,0 +1,35 @@
+nara-g2p
+Copyright 2026 kowinhtike
+
+This product includes software developed as part of the nara-g2p project.
+
+---
+
+Portions of this product are derived from third-party work released under the
+Apache License, Version 2.0:
+
+1. Nara Mini v1 — Burmese/English text-to-speech model
+   https://huggingface.co/YeeNyunn/nara-mini-v1
+   Copyright YeeNyunn (Nara Audio), licensed under the Apache License 2.0.
+
+   The original Python text frontend from that release is included unmodified
+   in `reference/` and is used as the verification oracle for the TypeScript
+   port in `src/`. It is redistributed here under the same licence.
+
+   The ONNX weights are NOT distributed with this repository. They are
+   downloaded at build time from the model release above and remain under its
+   licence; `models/` is excluded from version control for that reason.
+
+2. Kokoro-82M — the base architecture the model above was fine-tuned from.
+   https://huggingface.co/hexgrad/Kokoro-82M
+   Licensed under the Apache License 2.0.
+
+---
+
+The TypeScript port, the browser client in `web/`, and the build and
+verification tooling in `tools/` are original work and are released under the
+Apache License 2.0 (see LICENSE).
+
+espeak-ng is GPLv3 and is deliberately not bundled. The `setEnglishG2P()` hook
+exists so a user can supply their own backend; doing so makes that backend's
+licence their responsibility.
