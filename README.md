@@ -1,5 +1,8 @@
 # SagaPyaw · စကားပြော
 
+**[→ Live demo](https://sagapyaw.iamwinhtike.workers.dev)** · first visit downloads 181 MB of
+weights once, then works offline.
+
 Burmese text-to-speech that runs **entirely in the browser** — no backend, no API keys, no
 server-side inference. The weights ship with the site, get cached on the device once, and
 inference runs in a WASM worker.
@@ -231,7 +234,11 @@ Things worth knowing before you push:
   (`npx wrangler pages deploy site`), or keep git on Netlify and mirror the folder to CF.
 - **`site/` is generated.** Never commit it; the hosts build it.
 
-#### Cloudflare Pages (recommended — no bandwidth cap)
+#### Cloudflare (recommended — no bandwidth cap)
+
+This is how the live demo is deployed. Note that Cloudflare's current "Connect to Git" flow
+creates a **Worker**, not a Pages project — the settings below are the same either way, but
+the URL is `sagapyaw.<account-subdomain>.workers.dev` instead of `sagapyaw.pages.dev`.
 
 Cloudflare ignores `netlify.toml` and `vercel.json`, so the build has to be described in the
 dashboard. Connect the repo, then set:
@@ -247,9 +254,11 @@ dashboard. Connect the repo, then set:
 The 25 MiB per-file cap is why `--split 20` exists; `build:site` already passes it, so no
 extra flag is needed. Two things differ from Netlify/Vercel:
 
-- **No COOP/COEP config file.** Cloudflare Pages cannot set response headers from the repo
-  (that needs a `_headers` file in the *output* directory, which `tools/pack.mjs` already
-  writes into `site/`). Deleting `site/_headers` would drop the page to `threads=1`.
+- **COOP/COEP come from `site/_headers`, not a config file.** Cloudflare cannot set response
+  headers from the repo root; the only hook is a `_headers` file in the *output* directory,
+  which `tools/pack.mjs` writes. Verified on Workers static assets: the deployed page returns
+  `cross-origin-opener-policy: same-origin` and `cross-origin-embedder-policy: require-corp`.
+  Deleting `site/_headers` would drop the page to `threads=1`.
 - **Builds are slower and fail loudly.** Every build re-downloads 181 MB from Hugging Face;
   Cloudflare's build image is generous but the first build often takes 3–5 minutes. If the
   fetch times out, re-run the deployment — the second attempt usually succeeds.
