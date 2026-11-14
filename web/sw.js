@@ -28,7 +28,20 @@ self.addEventListener('install', (event) => {
           const url = new URL(path, self.registration.scope).href;
           try {
             const res = await fetch(url, { cache: 'reload' });
-            if (res.ok) await cache.put(url, res);
+            if (!res.ok) return;
+            // Some hosts answer /index.html with a 307 to /. Caching a redirected
+            // response is allowed, but returning one for a navigation throws in
+            // Safari ("the response has a redirect flag") — and the PWA start_url
+            // is exactly that request. Re-wrap it as a plain 200 before caching.
+            // Headers are rebuilt rather than copied: content-encoding and
+            // content-length describe the wire form, not the decoded blob.
+            if (res.redirected) {
+              const body = await res.blob();
+              const type = res.headers.get('content-type') ?? 'application/octet-stream';
+              await cache.put(url, new Response(body, { status: 200, headers: { 'content-type': type } }));
+            } else {
+              await cache.put(url, res);
+            }
           } catch {
             /* a missing optional asset must not break installation */
           }
@@ -62,9 +75,14 @@ self.addEventListener('fetch', (event) => {
     (async () => {
       const cache = await caches.open(SHELL);
       const hit = await cache.match(request, { ignoreSearch: true });
-      if (hit) return hit;
+      // A redirected response must never satisfy a navigation (Safari throws).
+      // Entries written by an older version of this file could be redirected, so
+      // fall through to the network instead and let the put below heal the cache.
+      if (hit && !hit.redirected) return hit;
       const res = await fetch(request);
-      if (res.ok && res.type === 'basic') cache.put(request, res.clone()).catch(() => {});
+      if (res.ok && res.type === 'basic' && !res.redirected) {
+        cache.put(request, res.clone()).catch(() => {});
+      }
       return res;
     })(),
   );

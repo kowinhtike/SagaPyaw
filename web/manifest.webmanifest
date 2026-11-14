@@ -4,7 +4,7 @@
   "description": "မြန်မာစာသားကို ဖုန်းထဲမှာပဲ အသံဖတ်ပေးတယ်။ ဆာဗာ မလိုပါ။",
   "lang": "my",
   "dir": "ltr",
-  "start_url": "./index.html",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
