@@ -227,6 +227,29 @@ Things worth knowing before you push:
   (`npx wrangler pages deploy site`), or keep git on Netlify and mirror the folder to CF.
 - **`site/` is generated.** Never commit it; the hosts build it.
 
+#### Cloudflare Pages (recommended — no bandwidth cap)
+
+Cloudflare ignores `netlify.toml` and `vercel.json`, so the build has to be described in the
+dashboard. Connect the repo, then set:
+
+| Setting | Value |
+|---|---|
+| Framework preset | None |
+| Build command | `npm run build:site` |
+| Build output directory | `site` |
+| Root directory | `/` (default) |
+| Environment variable | `NODE_VERSION` = `22` (`.nvmrc` also carries it) |
+
+The 25 MiB per-file cap is why `--split 20` exists; `build:site` already passes it, so no
+extra flag is needed. Two things differ from Netlify/Vercel:
+
+- **No COOP/COEP config file.** Cloudflare Pages cannot set response headers from the repo
+  (that needs a `_headers` file in the *output* directory, which `tools/pack.mjs` already
+  writes into `site/`). Deleting `site/_headers` would drop the page to `threads=1`.
+- **Builds are slower and fail loudly.** Every build re-downloads 181 MB from Hugging Face;
+  Cloudflare's build image is generous but the first build often takes 3–5 minutes. If the
+  fetch times out, re-run the deployment — the second attempt usually succeeds.
+
 **Why `--split` exists.** Cloudflare Pages rejects any single file over 25 MiB and the
 decoder is 107 MB, so a self-contained bundle could not be uploaded there at all. With
 `--split 20` the weights ship as `decoder.onnx.p00 … p05` plus a `decoder.onnx.json`

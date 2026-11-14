@@ -6,13 +6,23 @@
  *   node tools/serve.mjs 8100 &
  *   node tools/test_browser.mjs http://localhost:8100/web/synth.html
  */
+import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import puppeteer from 'puppeteer-core';
 
 await mkdir('out', { recursive: true });
 const url = process.argv[2] ?? 'http://localhost:8100/web/index.html';
+
+// Same resolver as test_wav.mjs: chromium is /usr/bin on Linux, but Chrome lives in
+// /Applications on macOS. CHROME_PATH overrides both.
+const CHROME =
+  process.env.CHROME_PATH ??
+  (existsSync('/usr/bin/chromium')
+    ? '/usr/bin/chromium'
+    : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome');
+
 const browser = await puppeteer.launch({
-  executablePath: '/usr/bin/chromium',
+  executablePath: CHROME,
   headless: true,
   args: ['--no-sandbox', '--mute-audio', '--autoplay-policy=no-user-gesture-required'],
 });

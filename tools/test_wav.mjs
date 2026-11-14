@@ -7,6 +7,7 @@
  *   node tools/serve.mjs 8100 &
  *   node tools/test_wav.mjs 'http://localhost:8100/web/index.html?mode=file'
  */
+import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import puppeteer from 'puppeteer-core';
 
@@ -14,8 +15,17 @@ const url = process.argv[2] ?? 'http://localhost:8100/web/index.html';
 const out = process.argv[3] ?? 'out/wav-mode.wav';
 await mkdir('out', { recursive: true });
 
+// The binary is not in the same place on every OS: Linux distros put chromium in
+// /usr/bin, macOS keeps Chrome in /Applications. CHROME_PATH wins when both guesses
+// are wrong (a Playwright download, a beta channel, a Chromium build).
+const CHROME =
+  process.env.CHROME_PATH ??
+  (existsSync('/usr/bin/chromium')
+    ? '/usr/bin/chromium'
+    : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome');
+
 const browser = await puppeteer.launch({
-  executablePath: '/usr/bin/chromium',
+  executablePath: CHROME,
   headless: true,
   args: ['--no-sandbox', '--mute-audio', '--autoplay-policy=no-user-gesture-required'],
 });
