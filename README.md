@@ -1,7 +1,7 @@
 # SagaPyaw · စကားပြော
 
-**[→ Live demo](https://sagapyaw.sagapyaw.workers.dev)** · first visit downloads 181 MB of
-weights once, then works offline.
+**[→ Live demo](https://sagapyaw.sagapyaw.workers.dev)** · four voices, one download of
+181 MB per voice, cached on the device after that.
 
 Burmese text-to-speech that runs **entirely in the browser** — no backend, no API keys, no
 server-side inference. The weights ship with the site, get cached on the device once, and
@@ -15,6 +15,17 @@ The model is Kokoro-82M fine-tuned for Burmese + English, shipped as two ONNX gr
 Everything around it — number verbalisation, name replacement, syllable parsing, phoneme
 mapping, chunking, style selection, duration expansion — is Python in the original. This
 package is all of that, rewritten for the web, verified against the reference.
+
+### Voices
+
+The model ships four preset voices — `shoon`, `thazin`, `ko-banyar`, `htet-myat` (display
+names Shoon, Thazin, Ko Banyar, Htet Myat). Upstream describes each as *"its own network and
+matching voicepack"*, and the numbers bear that out: identical file sizes, different
+checksums, and even a different number of length-bin centers (Shoon has 7, the others 8).
+
+Pick one from the chip in the header; the choice is written into the URL (`?voice=thazin`)
+so it can be shared. Each voice is a full 181 MB encoder + decoder pair, and the cache keeps
+the two most recently used.
 
 ## Verification
 
@@ -78,8 +89,9 @@ All four voices (`shoon`, `htet-myat`, `ko-banyar`, `thazin`), ~725 MB:
 npm run fetch-models -- --all
 ```
 
-The synthesizer itself is voice-agnostic — `models/<voice>/` is the only thing that changes,
-and the demo page takes `?voice=`:
+The synthesizer itself is voice-agnostic — `models/<voice>/` is the only thing that changes.
+The page carries a voice chip in the header; `?voice=` does the same thing and is what the
+picker writes into the URL, so a link can point at one voice:
 
 ```
 http://localhost:8100/web/index.html?voice=htet-myat
@@ -156,15 +168,17 @@ tests; `tools/verify_audio.py` compares sample counts exactly and correlation in
 
 ## Streaming, cache, phones
 
-`web/index.html` is the whole client — one page, one button. Everything below is wired up:
+`web/index.html` is the whole client — one page, a text box, and a voice chip in the header.
+Everything below is wired up:
 
 | Piece | What it does |
 |---|---|
 | `synth.synthesizeStream(text, { firstLimit, signal })` | Yields one playable chunk at a time. The first chunk is cut short at whitespace (default 22 chars) so the listener hears something in ~1 s; the rest keep the full 200-char budget. |
 | `web/player.js` | Schedules chunks on the AudioContext clock instead of playing them on arrival, so gaps between chunks disappear. Unlocks on the first tap (iOS refuses otherwise) and sets `audioSession.type = 'playback'` so the silent switch does not mute it. |
-| `web/model-store.js` | Downloads each file **through** a counting stream straight into the Cache API — 181 MB never sits in JS memory twice. Falls back to a buffered put where Safari refuses streaming bodies. |
+| `web/model-store.js` | Downloads each file **through** a counting stream straight into the Cache API — 181 MB never sits in JS memory twice. Falls back to a buffered put where Safari refuses streaming bodies. Also owns the voice recency list and the two-voice eviction. |
+| `synth.dispose()` | Frees both ORT graphs before another voice is fetched. The picker will not switch mid-synthesis; it asks you to wait rather than tearing down a running decode. |
 | `ort.env.wasm.proxy = true` | Runs inference in a worker. Without it a 5 s decode freezes the main thread, which on a phone looks like a hang and makes "ရပ်" dead. Measured: stop now settles in 0.2 s. |
-| `web/sw.js` + `manifest.webmanifest` | Installable PWA, app shell cached for offline. The 181 MB model is deliberately **not** in the service worker cache, so a shell update can never invalidate it. |
+| `web/sw.js` + `manifest.webmanifest` | Installable PWA, app shell cached for offline. The 181 MB models are deliberately **not** in the service worker cache, so a shell update can never invalidate them. |
 
 ### Two playback modes
 
@@ -193,12 +207,18 @@ mode, 2.8 s → 130 KB in stream mode, both RIFF/WAVE 24 kHz 16-bit mono.
 npm run pack                   # site/ ≈ 11 MB, no weights
 npm run pack -- --with-models  # + models/shoon ≈ 193 MB
 npm run pack:split             # same, weights split to ≤20 MiB per file
+npm run pack:split --all       # all four voices ≈ 736 MB
 ```
 
 `site/` is a flat static bundle with `_headers` (Netlify / Cloudflare Pages) and
 `vercel.json` already carrying the `COOP`/`COEP` headers that multi-threaded WASM needs.
 Without them the page still runs, at `threads=1` and roughly half the speed — on a phone
 that is the difference between smooth and stuttering.
+
+Shipping all four voices costs **≈736 MB of upload** (4 × 181 MB of weights plus the ~11 MB
+shell), because each voice is its own encoder + decoder pair. That is a one-off cost per
+deploy, not per visitor: a visitor downloads only the voice they pick, and the cache keeps
+their two most recent ones.
 
 #### Deploying from Git (Vercel / Netlify)
 
@@ -209,9 +229,9 @@ excludes `models/` and `site/`, which keeps the pushed repo at ~13 MB (mostly `w
 `npm run build:site` is the entire CI step — fetch, build, pack:
 
 ```sh
-node tools/fetch_models.mjs                    # 181 MB from Hugging Face
-node tools/build.mjs                           # dist/
-node tools/pack.mjs --with-models --split 20   # site/ ≈ 193 MB
+node tools/fetch_models.mjs --all                     # 725 MB from Hugging Face
+node tools/build.mjs                                  # dist/
+node tools/pack.mjs --with-models --all --split 20    # site/ ≈ 736 MB
 ```
 
 Both configs are committed at the repo root, so connecting the repo is the only manual step:
@@ -223,15 +243,17 @@ Both configs are committed at the repo root, so connecting the repo is the only 
 
 Things worth knowing before you push:
 
-- **Build time** is 1–3 minutes, almost all of it the download. The 181 MB is *not* cached
-  between builds by default, so every push pays it again (add `netlify-plugin-cache` with
-  `models/` if that annoys you).
+- **Build time** is 8–15 minutes with all four voices, almost all of it the download. The
+  725 MB is *not* cached between builds by default, so every push pays it again (add
+  `netlify-plugin-cache` with `models/` if that annoys you). Shipping one voice
+  (`--voice=shoon`) drops it back to 1–3 minutes.
 - **Per-file cap**: with `--split 20` the largest file is 20 MiB — under Cloudflare's
   25 MiB, Vercel's ~100 MB and Netlify's ~100 MB alike.
-- **Bandwidth is the real cost.** Each first-time visitor pulls 181 MB. Netlify free is
-  100 GB/month, i.e. ~550 new visitors; Vercel Hobby is 100 GB and personal-use only.
-  Cloudflare Pages has no bandwidth cap — for real traffic, publish `site/` there instead
-  (`npx wrangler pages deploy site`), or keep git on Netlify and mirror the folder to CF.
+- **Bandwidth is the real cost.** Each new voice a visitor picks is another 181 MB. Netlify
+  free is 100 GB/month, i.e. ~550 voice downloads; Vercel Hobby is 100 GB and personal-use
+  only. Cloudflare Pages has no bandwidth cap — for real traffic, publish `site/` there
+  instead (`npx wrangler pages deploy site`), or keep git on Netlify and mirror the folder
+  to CF.
 - **`site/` is generated.** Never commit it; the hosts build it.
 
 #### Cloudflare (recommended — no bandwidth cap)
@@ -259,9 +281,10 @@ extra flag is needed. Two things differ from Netlify/Vercel:
   which `tools/pack.mjs` writes. Verified on Workers static assets: the deployed page returns
   `cross-origin-opener-policy: same-origin` and `cross-origin-embedder-policy: require-corp`.
   Deleting `site/_headers` would drop the page to `threads=1`.
-- **Builds are slower and fail loudly.** Every build re-downloads 181 MB from Hugging Face;
-  Cloudflare's build image is generous but the first build often takes 3–5 minutes. If the
-  fetch times out, re-run the deployment — the second attempt usually succeeds.
+- **Builds are slower and fail loudly.** Every build re-downloads 725 MB from Hugging Face;
+  Cloudflare's build image is generous but a four-voice build takes 8–15 minutes and the
+  free-plan build timeout is the thing to watch. If the fetch times out, re-run the
+  deployment — the second attempt usually succeeds.
 
 **Why `--split` exists.** Cloudflare Pages rejects any single file over 25 MiB and the
 decoder is 107 MB, so a self-contained bundle could not be uploaded there at all. With
@@ -280,10 +303,20 @@ served entirely from the Cache API.
   (GPLv3, native). Without an injected backend, Latin runs pass through untouched — and
   since they are not in the vocab, the model skips them. Inject one with
   `setEnglishG2P()`, or pre-phonemise server-side.
-- **181 MB of weights per voice.** Encoders differ per voice, so voices cannot share them.
-  Cache with the Cache API / OPFS; brotli only saves ~8 %.
-- **One voice is wired up (shoon).** Switching is a folder name — the synthesizer reads style
-  bins from `voice.json` — but each voice is its own 181 MB encoder + decoder pair.
+- **181 MB of weights per voice.** Encoders differ per voice, so voices cannot share them —
+  identical file sizes, different checksums. Cache with the Cache API / OPFS; brotli only
+  saves ~8 %.
+- **Switching voices costs a download.** All four (`shoon`, `thazin`, `htet-myat`,
+  `ko-banyar`) are selectable from the header chip, but the first use of each fetches its own
+  181 MB. Switching *back* to a cached voice is instant.
+- **Only two voices stay cached.** `model-store.js` keeps an LRU list in `localStorage` and
+  evicts everything beyond the two most recently used, so picking a third voice silently
+  frees the oldest. Without a cap, four voices is 725 MB on disk — over Safari's storage
+  budget for a single origin, and a `QuotaExceededError` is not something the page can
+  recover from gracefully. Two voices (362 MB) sits comfortably inside it.
+- **Never two voices in memory.** `synth.dispose()` releases both ORT graphs *before* the
+  next voice is fetched; loading one on top of another is ~360 MB of weights plus two heaps,
+  which is what makes a phone reload the tab.
 - **Streaming is chunk-level, not sentence-level.** A chunk is cut at whitespace, so the pause
   token that a space normally produces is lost at the boundary; the 200 ms inter-chunk gap
   covers it. Chunks above ~200 chars would exceed the 508-phoneme context.
@@ -301,7 +334,7 @@ src/            TypeScript port
                 english.ts frontend.ts inference.ts index.ts
 src/data/       tables.json + the two TSV tables (generated from reference/)
 reference/      unmodified Python frontend from the model repo (Apache-2.0)
-models/shoon/   encoder.onnx, decoder.onnx, voice.json
+models/<voice>/  encoder.onnx, decoder.onnx, voice.json (shoon · thazin · htet-myat · ko-banyar)
 tools/          export_data.py gen_corpus.py gen_fuzz.py ref.py golden.mjs
                 build.mjs serve.mjs synthesize.mjs verify_audio.py
                 test_browser.mjs cli.mjs fetch_models.mjs pack.mjs

@@ -41,10 +41,26 @@
   header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
   /* Brand mark is Latin: use the UI stack, not the Burmese one. */
   h1 { font-size: 18px; margin: 0; letter-spacing: -.02em; display: flex; align-items: center; gap: 8px; font-weight: 600; }
-  h1 span {
-    color: var(--dim); font-weight: 400; font-size: 12px; font-family: var(--mono);
-    border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px;
+  /* The voice chip is the only control in the header: tapping it opens the list. */
+  .voicebtn {
+    display: inline-flex; align-items: center; gap: 5px; min-height: 26px;
+    background: transparent; border: 1px solid var(--line); border-radius: 99px;
+    color: var(--dim); font-family: var(--mono); font-size: 12px; font-weight: 400;
+    padding: 1px 9px; cursor: pointer;
   }
+  .voicebtn i { font-style: normal; font-size: 9px; opacity: .75; }
+  .voicebtn[aria-expanded="true"] { color: var(--fg); border-color: #3a4352; }
+  .voices { display: flex; flex-wrap: wrap; gap: 6px; margin: -2px 0 12px; }
+  /* `display: flex` beats the UA rule for [hidden], so hiding has to be explicit. */
+  .voices[hidden] { display: none; }
+  .voices button {
+    display: inline-flex; align-items: center; gap: 6px; min-height: 34px;
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 10px;
+    color: var(--fg); font-family: inherit; font-size: 13px; padding: 0 10px; cursor: pointer;
+  }
+  .voices button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  .voices button small { font-family: var(--mono); font-size: 10.5px; color: var(--dim); }
+  .voices button[aria-pressed="true"] small { color: var(--accent); }
   .envchip { display: none; }
   .envchip.show { display: inline-flex; align-items: center; }
   .envchip .dot { margin-right: 5px; }
@@ -123,10 +139,16 @@
 <body>
 <main>
   <header>
-    <h1>SagaPyaw <span id="voiceName">shoon</span></h1>
+    <h1>SagaPyaw
+      <button type="button" class="voicebtn" id="voiceBtn" aria-expanded="false" aria-controls="voiceList">
+        <span id="voiceName">shoon</span><i aria-hidden="true">▾</i>
+      </button>
+    </h1>
     <span class="envchip" id="env" hidden></span>
     <button class="ghost" id="install" hidden>ဖုန်းမှာ ထည့်ပါ</button>
   </header>
+
+  <div class="voices" id="voiceList" hidden></div>
 
   <section class="card">
     <textarea id="text" spellcheck="false" autocomplete="off" placeholder="မြန်မာစာ ရိုက်ထည့်ပါ …">မင်္ဂလာပါ။ ဒီနေ့ ရာသီဥတု ကောင်းတယ်။</textarea>
@@ -168,18 +190,37 @@
 import * as ort from './vendor/ort.wasm.bundle.min.mjs';
 import { SagaSynthesizer, encodeWav } from '../dist/sagapyaw.mjs';
 import { StreamPlayer } from './player.js';
-import { loadFile, isCached, requestPersistence, storageEstimate, clearModelCache } from './model-store.js';
+import {
+  loadFile, isCached, requestPersistence, storageEstimate, clearModelCache,
+  touchVoice, evictVoicesBeyondRecent,
+} from './model-store.js';
 
 const SR = 24000;
 const params = new URLSearchParams(location.search);
-const VOICE = params.get('voice') ?? 'shoon';
-const BASE = `../models/${encodeURIComponent(VOICE)}`;
-const FILES = {
-  encoder: { url: `${BASE}/encoder.onnx`, weight: 78_268_090, label: 'encoder' },
-  decoder: { url: `${BASE}/decoder.onnx`, weight: 111_686_677, label: 'decoder' },
-  voice: { url: `${BASE}/voice.json`, weight: 46_300, label: 'voice.json' },
+
+// The four voices of nara-mini-v1. Same topology and byte-for-byte identical
+// file sizes, different weights — so the constants below hold for every voice.
+const VOICES = [
+  { id: 'shoon', label: 'Shoon' },
+  { id: 'thazin', label: 'Thazin' },
+  { id: 'htet-myat', label: 'Htet Myat' },
+  { id: 'ko-banyar', label: 'Ko Banyar' },
+];
+const voiceLabel = (id) => VOICES.find((v) => v.id === id)?.label ?? id;
+
+let VOICE = params.get('voice') ?? VOICES[0].id;
+if (!VOICES.some((v) => v.id === VOICE)) VOICE = VOICES[0].id;
+
+const filesFor = (id) => {
+  const base = `../models/${encodeURIComponent(id)}`;
+  return {
+    encoder: { url: `${base}/encoder.onnx`, weight: 78_268_090, label: 'encoder' },
+    decoder: { url: `${base}/decoder.onnx`, weight: 111_686_677, label: 'decoder' },
+    voice: { url: `${base}/voice.json`, weight: 46_300, label: 'voice.json' },
+  };
 };
-const TOTAL_WEIGHT = FILES.encoder.weight + FILES.decoder.weight + FILES.voice.weight;
+let FILES = filesFor(VOICE);
+const TOTAL_WEIGHT = 78_268_090 + 111_686_677 + 46_300;
 
 const isolated = self.crossOriginIsolated === true;
 const hw = navigator.hardwareConcurrency || 2;
@@ -212,12 +253,13 @@ const setBar = (frac) => {
 const bytesLabel = (n) => n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1024).toFixed(0)} KB`;
 const secs = (ms) => `${(ms / 1000).toFixed(2)}s`;
 
-$('voiceName').textContent = VOICE;
+$('voiceName').textContent = voiceLabel(VOICE);
 document.title = 'SagaPyaw — မြန်မာ အသံ';
 
 /* ---------------------------------------------------------------- model ---- */
 
 let synth = null;
+let synthVoice = null;
 let loading = null;
 const fileFrac = new Map();
 
@@ -242,15 +284,25 @@ async function loadBytes(file, phase) {
 }
 
 async function ensureModel() {
-  if (synth) return synth;
+  if (synth && synthVoice === VOICE) return synth;
   if (loading) return loading;
 
   loading = (async () => {
+    // One voice at a time. The previous graphs are released before a single byte
+    // of the next voice is fetched: 360 MB of weights plus two ORT heaps is what
+    // makes a phone reload the tab.
+    if (synth) {
+      synth.dispose();
+      synth = null;
+      synthVoice = null;
+    }
+    fileFrac.clear();
+
     const cached = await isCached(Object.values(FILES).map((f) => f.url));
     const phase = cached ? 'cache ထဲကနေ ဖတ်နေတယ်' : 'မော်ဒယ် ဒေါင်းလုပ်နေတယ်';
 
     if (!cached) {
-      say(`${phase} · ပထမအကြိမ်ပါ (${bytesLabel(TOTAL_WEIGHT)})`);
+      say(`${phase} · ${voiceLabel(VOICE)} · ပထမအကြိမ်ပါ (${bytesLabel(TOTAL_WEIGHT)})`);
       requestPersistence().then(refreshStorage);
     }
 
@@ -271,7 +323,12 @@ async function ensureModel() {
     });
 
     synth = SagaSynthesizer.fromSessions(ort, encoder, decoder, metadata);
+    synthVoice = VOICE;
     setBar(1);
+    // The voice just used goes to the front of the recency list, and anything
+    // beyond the two most recent is dropped from the cache.
+    touchVoice(VOICE);
+    evictVoicesBeyondRecent().then(renderVoices).catch(() => {});
     return synth;
   })();
 
@@ -533,6 +590,100 @@ for (const text of EXAMPLES) {
   $('chips').append(chip);
 }
 
+/* ---------------------------------------------------------------- voices -- */
+
+const voiceList = $('voiceList');
+
+function closeVoices() {
+  voiceList.hidden = true;
+  $('voiceBtn').setAttribute('aria-expanded', 'false');
+}
+
+/** Rebuild the option list with a cached / needs-download marker per voice. */
+async function renderVoices() {
+  const states = await Promise.all(
+    VOICES.map(async (v) => ({
+      ...v,
+      cached: await isCached(Object.values(filesFor(v.id)).map((f) => f.url)),
+    })),
+  );
+  voiceList.replaceChildren(
+    ...states.map((v) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.setAttribute('aria-pressed', String(v.id === VOICE));
+      button.innerHTML = `${v.label} <small>${v.cached ? '✓' : `⬇ ${bytesLabel(TOTAL_WEIGHT)}`}</small>`;
+      button.onclick = () => selectVoice(v.id);
+      return button;
+    }),
+  );
+}
+
+/** Drop everything that belongs to the voice being left behind. */
+function resetOutput() {
+  player?.stop();
+  $('out').classList.remove('show');
+  const audio = $('audio');
+  audio.pause();
+  audio.removeAttribute('src');
+  if (objectUrl) {
+    URL.revokeObjectURL(objectUrl);
+    objectUrl = null;
+  }
+  $('dl').removeAttribute('href');
+  $('size').textContent = '';
+  $('stats').innerHTML = '';
+  $('phon').textContent = '';
+  setBar(0);
+}
+
+async function selectVoice(id) {
+  closeVoices();
+  if (id === VOICE) return;
+  if (running || loading) {
+    say('<span class="warn">အသံ မပြောင်းခင် ခဏ စောင့်ပါ</span>');
+    return;
+  }
+
+  // Release the old graphs first; the new voice is not touched until they are gone.
+  synth?.dispose();
+  synth = null;
+  synthVoice = null;
+  fileFrac.clear();
+
+  VOICE = id;
+  FILES = filesFor(id);
+  $('voiceName').textContent = voiceLabel(id);
+  history.replaceState(null, '', `?voice=${encodeURIComponent(id)}`);
+  resetOutput();
+
+  touchVoice(id);
+  const cached = await isCached(Object.values(FILES).map((f) => f.url));
+  $('go').textContent = cached ? 'ဖတ်ပါ' : 'ဒေါင်းလုပ် · ဖတ်ပါ';
+  say(
+    cached
+      ? `<span class="ok">${voiceLabel(id)}</span> · cache ထဲမှာ ရှိပြီး`
+      : `<b>${voiceLabel(id)}</b> · ${bytesLabel(TOTAL_WEIGHT)} ဒေါင်းလုပ်ရမယ်`,
+  );
+  refreshStorage();
+  renderVoices();
+}
+
+$('voiceBtn').onclick = () => {
+  const opening = voiceList.hidden;
+  voiceList.hidden = !opening;
+  $('voiceBtn').setAttribute('aria-expanded', String(opening));
+  if (opening) renderVoices();
+};
+
+// Tapping anywhere else closes the list; leaving it open over the textarea is
+// how a picker ends up covering the thing the user wanted to tap.
+document.addEventListener('click', (event) => {
+  if (voiceList.hidden) return;
+  if (voiceList.contains(event.target) || $('voiceBtn').contains(event.target)) return;
+  closeVoices();
+});
+
 $('env').innerHTML = isolated
   ? `<span class="dot ok"></span>${ort.env.wasm.numThreads} threads`
   : `<span class="dot warn"></span>threads 1`;
@@ -583,6 +734,7 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 
 // Warm up in the background when the model is already on disk: the first tap
 // should be instant, not a 2 second session build.
+touchVoice(VOICE);
 isCached(Object.values(FILES).map((f) => f.url)).then((cached) => {
   if (!cached) {
     $('go').textContent = 'ဒေါင်းလုပ် · ဖတ်ပါ';

@@ -15,7 +15,8 @@ the model's Python text frontend (G2P) that is verified to be bit-identical to t
   `dist/sagapyaw.mjs`, class `SagaSynthesizer`, caches `sagapyaw-*`. The *model* keeps its own
   name everywhere it appears; do not rename `nara-mini-v1` or `src/naraNames.ts`.
 - Model: `YeeNyunn/nara-mini-v1` (Apache-2.0), Kokoro-style encoder + decoder, 24 kHz mono.
-- Product: one page (`web/index.html`), one button. Everything else is tooling.
+- Product: one page (`web/index.html`) — text box, one button, and a voice chip in the header.
+  Everything else is tooling.
 - The UI copy is Burmese. Keep it that way unless asked.
 - `web/index.html` has a two-line footer: the model credit (link to the Hugging Face repo —
   that is the Apache-2.0 attribution, keep it) and the author line, where `kowinhtike` links to
@@ -43,6 +44,8 @@ Break one of these and the app silently degrades instead of failing loudly.
 5. **Memory is the binding constraint on phones.** At most one ONNX graph in memory at a time
    (`web/index.html` loads encoder, builds the session, then loads decoder). Never hold two
    copies of the 181 MB weights, never `arrayBuffer()` a model file that is also cached.
+   **Switching voices must call `synth.dispose()` before the next voice is fetched** — two
+   voices is ~360 MB of weights plus two ORT heaps, and that is what makes a phone reload.
 6. **Cache names are user data.** `sagapyaw-model-v1` (Cache API) holds the 181 MB of weights and
    `sagapyaw-shell-v1` (service worker) holds the app shell. Changing what a URL *means* requires
    bumping the cache name, otherwise returning users keep stale bytes forever. Never put the
@@ -55,6 +58,19 @@ Break one of these and the app silently degrades instead of failing loudly.
 9. **Keep it one page.** The user asked explicitly for fewer choices. Do not add pages, tabs or
    mode switches to the shipped UI; put tools under `web/dev/` (never copied into `site/`) and
    add query params (`?mode=file`, `?voice=`, `?threads=`) for anything a developer needs.
+   The one exception is the voice picker behind the header chip: four voices are content, not a
+   mode, and it is a disclosure rather than a second screen.
+
+## Voices
+
+Four voices ship (`shoon`, `thazin`, `htet-myat`, `ko-banyar`). Each is its own 181 MB
+encoder+decoder pair — the weights differ per voice and cannot be shared, so the full bundle is
+~725 MB. `npm run fetch-models -- --all` downloads them; `pack --all` ships them.
+
+On the device, only the **two most recently used** voices stay in the Cache API
+(`evictVoicesBeyondRecent()` in `web/model-store.js`, recency in `localStorage`). That keeps a
+phone inside its per-origin quota; a third selection evicts the oldest. Do not raise
+`KEEP_VOICES` without checking iOS storage behaviour on a real device.
 
 ## Layout
 
@@ -64,7 +80,7 @@ src/                TypeScript text frontend + inference (the library)
   inference.ts      SagaSynthesizer: runPiece / synthesizeStream / synthesize / encodeWav
   index.ts          textToPhonemes() convenience wrapper
 web/                the client
-  index.html        THE APP. One page: textarea, one button, player, download
+  index.html        THE APP. One page: voice chip, textarea, one button, player, download
   player.js         StreamPlayer: schedules chunks on the AudioContext clock
   model-store.js    Cache API downloader + split-file reassembly
   sw.js             app-shell cache (never the model)
@@ -87,6 +103,7 @@ npm run fuzz                  # 4,000 random G2P cases against the Python oracle
 npm run synth -- --text "မင်္ဂလာပါ။" --out out/demo.wav
 npm run test:browser          # headless Chromium, stream mode (needs serve on :8100)
 npm run test:wav              # headless Chromium, file mode; saves out/wav-mode.wav
+npm run test:voices           # voice picker + LRU-2 eviction, no downloads
 npm run pack                  # site/, no weights (~11 MB)
 npm run pack:split            # site/, weights included and split to ≤20 MiB per file
 npm run build:site            # CI: fetch models → build → pack:split (what hosts run)
@@ -139,7 +156,9 @@ the file had never been split.
 3. `npm run test:browser` — prints `firstAudioMs`, `RTF`, chunk count, and must end with
    `document.title` starting `ok `. Expect RTF ≈ 0.7–1.1 on a desktop.
 4. `npm run test:wav` — saves a WAV and prints its size/duration; `RIFF/WAVE`, 24 kHz mono.
-5. `npm run pack:split`, then re-run `test:wav` against `http://localhost:8100/site/index.html`
+5. `npm run test:voices` — picker renders four voices, switching does not download, and the
+   LRU-2 eviction keeps exactly two. Uses 3-byte stand-ins, so it runs in seconds.
+6. `npm run pack:split`, then re-run `test:wav` against `http://localhost:8100/site/index.html`
    — this exercises the split-reassembly path.
 
 ## Known limitations (do not "fix" by guessing)

@@ -16,6 +16,8 @@ export interface OrtTensorLike {
 }
 export interface OrtSessionLike {
   run(feeds: Record<string, unknown>): Promise<Record<string, OrtTensorLike>>;
+  /** Frees the WASM heap the session owns. Present on onnxruntime-web sessions. */
+  release?(): void;
 }
 export interface OrtModuleLike {
   Tensor: new (type: string, data: unknown, dims: readonly number[]) => unknown;
@@ -237,6 +239,21 @@ export class SagaSynthesizer {
 
   get sampleRate(): number {
     return this.metadata.sample_rate;
+  }
+
+  /**
+   * Drop both graphs. Required before another voice is loaded: two voices in one
+   * tab is ~360 MB of weights plus two ORT heaps, which is what makes a phone
+   * reload the page. Safe to call more than once, and never throws.
+   */
+  dispose(): void {
+    for (const session of [this.encoder, this.decoder]) {
+      try {
+        session.release?.();
+      } catch {
+        /* a session that is already gone is not an error */
+      }
+    }
   }
 
   /** Same validation the reference performs, so failures surface identically. */

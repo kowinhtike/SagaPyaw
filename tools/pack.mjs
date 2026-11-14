@@ -4,6 +4,7 @@
  *
  *   node tools/pack.mjs                 # app shell + runtime, no model (≈12 MB)
  *   node tools/pack.mjs --with-models   # + models/shoon (≈193 MB)
+ *   node tools/pack.mjs --with-models --all --split 20   # all four voices (≈736 MB)
  *
  * The app needs COOP/COEP headers for multi-threaded WASM; `_headers` (Netlify,
  * Cloudflare Pages) and `vercel.json` are written next to the output so a plain
@@ -17,7 +18,15 @@ import { join } from 'node:path';
 const root = process.cwd();
 const site = join(root, 'site');
 const withModels = process.argv.includes('--with-models');
-const voice = process.argv.find((a) => a.startsWith('--voice='))?.split('=')[1] ?? 'shoon';
+// Every voice the app offers. Each is a full 181 MB encoder+decoder pair, so
+// shipping all four is ~725 MB; `--voice=` still packs a single one.
+const ALL_VOICES = ['shoon', 'thazin', 'htet-myat', 'ko-banyar'];
+const voiceArg = process.argv.find((a) => a.startsWith('--voice='))?.split('=')[1];
+const voices = process.argv.includes('--all')
+  ? ALL_VOICES
+  : voiceArg
+    ? voiceArg.split(',').filter(Boolean)
+    : [ALL_VOICES[0]];
 
 // `--split 20` splits the weights so no single file exceeds a host's per-file
 // cap (Cloudflare Pages: 25 MiB). Parsed up front because the pages need to know
@@ -64,12 +73,14 @@ await writeFile(join(site, 'sw.js'), sw);
 
 // --- model ---------------------------------------------------------------------
 if (withModels) {
-  const from = join(root, 'models', voice);
-  if (!existsSync(from)) {
-    console.error(`models/${voice} not found — run: npm run fetch-models -- --voice ${voice}`);
-    process.exit(1);
+  for (const voice of voices) {
+    const from = join(root, 'models', voice);
+    if (!existsSync(from)) {
+      console.error(`models/${voice} not found — run: npm run fetch-models -- --all`);
+      process.exit(1);
+    }
+    await cp(from, join(site, 'models', voice), { recursive: true });
   }
-  await cp(from, join(site, 'models', voice), { recursive: true });
 } else {
   await mkdir(join(site, 'models'), { recursive: true });
 }
@@ -80,26 +91,28 @@ if (withModels) {
 // host — at the cost of one manifest and a reassembly step in model-store.js.
 const splitReport = [];
 if (willSplit) {
-  const dir = join(site, 'models', voice);
   const partSize = Math.floor(partMiB * 1024 * 1024);
-  for (const name of ['encoder.onnx', 'decoder.onnx']) {
-    const file = join(dir, name);
-    if (!existsSync(file)) continue;
-    const buf = await readFile(file);
-    const parts = [];
-    for (let offset = 0, i = 0; offset < buf.length; offset += partSize, i += 1) {
-      const slice = buf.subarray(offset, Math.min(offset + partSize, buf.length));
-      const partName = `${name}.p${String(i).padStart(2, '0')}`;
-      await writeFile(join(dir, partName), slice);
-      parts.push({ name: partName, size: slice.length });
+  for (const voice of voices) {
+    const dir = join(site, 'models', voice);
+    for (const name of ['encoder.onnx', 'decoder.onnx']) {
+      const file = join(dir, name);
+      if (!existsSync(file)) continue;
+      const buf = await readFile(file);
+      const parts = [];
+      for (let offset = 0, i = 0; offset < buf.length; offset += partSize, i += 1) {
+        const slice = buf.subarray(offset, Math.min(offset + partSize, buf.length));
+        const partName = `${name}.p${String(i).padStart(2, '0')}`;
+        await writeFile(join(dir, partName), slice);
+        parts.push({ name: partName, size: slice.length });
+      }
+      const sha256 = createHash('sha256').update(buf).digest('hex');
+      await writeFile(
+        join(dir, `${name}.json`),
+        `${JSON.stringify({ file: name, size: buf.length, sha256, partMiB, parts }, null, 1)}\n`,
+      );
+      await rm(file);
+      splitReport.push(`models/${voice}/${name} → ${parts.length} × ≤${partMiB} MiB`);
     }
-    const sha256 = createHash('sha256').update(buf).digest('hex');
-    await writeFile(
-      join(dir, `${name}.json`),
-      `${JSON.stringify({ file: name, size: buf.length, sha256, partMiB, parts }, null, 1)}\n`,
-    );
-    await rm(file);
-    splitReport.push(`${name} → ${parts.length} × ≤${partMiB} MiB`);
   }
 }
 
@@ -147,9 +160,9 @@ const vercel = {
 };
 await writeFile(join(site, 'vercel.json'), `${JSON.stringify(vercel, null, 2)}\n`);
 
-console.log(`site/  ready  ${withModels ? `(with models/${voice})` : '(no models — run fetch-models on the host or copy models/ in)'}`);
+console.log(`site/  ready  ${withModels ? `(with models/${voices.join(', models/')})` : '(no models — run fetch-models on the host or copy models/ in)'}`);
 if (splitReport.length) {
-  console.log(`  split: ${splitReport.join(' · ')}`);
+  console.log(`  split: ${splitReport.length} graphs → ≤${partMiB} MiB parts`);
   console.log('         model-store.js reassembles them on first load, then caches as one file');
 } else if (partMiB && !withModels) {
   console.log('  --split ignored: needs --with-models');

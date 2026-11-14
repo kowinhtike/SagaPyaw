@@ -1441,6 +1441,19 @@ var SagaSynthesizer = class _SagaSynthesizer {
   get sampleRate() {
     return this.metadata.sample_rate;
   }
+  /**
+   * Drop both graphs. Required before another voice is loaded: two voices in one
+   * tab is ~360 MB of weights plus two ORT heaps, which is what makes a phone
+   * reload the page. Safe to call more than once, and never throws.
+   */
+  dispose() {
+    for (const session of [this.encoder, this.decoder]) {
+      try {
+        session.release?.();
+      } catch {
+      }
+    }
+  }
   /** Same validation the reference performs, so failures surface identically. */
   pickStyle(count) {
     const { centers, styles } = this.metadata;

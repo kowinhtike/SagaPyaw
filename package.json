@@ -23,9 +23,10 @@
     "verify": "python3 tools/verify_audio.py",
     "test:browser": "node tools/test_browser.mjs \"http://localhost:8100/web/index.html?mode=stream\"",
     "test:wav": "node tools/test_wav.mjs \"http://localhost:8100/web/index.html?mode=file\"",
+    "test:voices": "node tools/test_voices.mjs",
     "pack": "node tools/pack.mjs",
-    "pack:split": "node tools/pack.mjs --with-models --split 20",
-    "build:site": "node tools/fetch_models.mjs && node tools/build.mjs && node tools/pack.mjs --with-models --split 20"
+    "pack:split": "node tools/pack.mjs --with-models --all --split 20",
+    "build:site": "node tools/fetch_models.mjs --all && node tools/build.mjs && node tools/pack.mjs --with-models --all --split 20"
   },
   "keywords": [
     "sagapyaw",

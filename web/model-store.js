@@ -219,4 +219,67 @@ export async function storageEstimate() {
 export async function clearModelCache() {
   if (!cacheAvailable()) return;
   await caches.delete(CACHE);
+  // The recency list describes what is in that cache; once the cache is gone it
+  // only misleads the eviction pass.
+  writeUsed([]);
+}
+
+/* ---------------------------------------------------------- voice policy -- */
+
+/**
+ * Two voices stay on the device; picking a third evicts the least recently used
+ * one. Each voice is 181 MB, so keeping all four is 725 MB — more than iOS will
+ * hold for one origin without evicting something, and the eviction is silent.
+ *
+ * The recency list lives in localStorage: it is a few bytes, it has to survive a
+ * reload, and losing it only costs a re-download.
+ */
+const KEEP_VOICES = 2;
+const USED_KEY = 'sagapyaw:voices';
+
+function readUsed() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(USED_KEY) ?? '[]');
+    return Array.isArray(raw) ? raw.filter((v) => typeof v === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeUsed(list) {
+  try {
+    localStorage.setItem(USED_KEY, JSON.stringify(list));
+  } catch {
+    /* private mode: recency is an optimisation, not a requirement */
+  }
+}
+
+/** Most recently used first, with `id` promoted to the front. */
+export function touchVoice(id) {
+  const list = readUsed().filter((v) => v !== id);
+  list.unshift(id);
+  writeUsed(list);
+  return list;
+}
+
+/** Delete cached voices that fall outside the two most recently used. */
+export async function evictVoicesBeyondRecent() {
+  if (!cacheAvailable()) return [];
+  const keep = readUsed().slice(0, KEEP_VOICES);
+  // An empty list means localStorage was cleared or unreadable. Deleting every
+  // cached voice in that case would turn a full cache into a 181 MB download
+  // for no reason, so do nothing until we know what the user actually used.
+  if (!keep.length) return [];
+  const cache = await caches.open(CACHE);
+  const dropped = new Set();
+  for (const request of await cache.keys()) {
+    const match = /\/models\/([^/]+)\//.exec(new URL(request.url).pathname);
+    if (!match) continue;
+    const voice = decodeURIComponent(match[1]);
+    if (keep.includes(voice)) continue;
+    await cache.delete(request);
+    dropped.add(voice);
+  }
+  if (dropped.size) writeUsed(keep);
+  return [...dropped];
 }
