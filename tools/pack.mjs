@@ -50,13 +50,6 @@ for (const file of ['player.js', 'model-store.js', 'sw.js', 'manifest.webmanifes
 }
 await cp(join(root, 'web', 'icons'), join(site, 'icons'), { recursive: true });
 await cp(join(root, 'web', 'vendor'), join(site, 'vendor'), { recursive: true });
-// The GPU build is 21 MB of wasm and is not in git (see .gitignore), so the
-// deploy takes it from the installed onnxruntime-web instead. Only fetched by a
-// browser that asks for `?ep=webgpu`, so it costs other visitors nothing.
-for (const file of ['ort.webgpu.bundle.min.mjs', 'ort-wasm-simd-threaded.jsep.mjs', 'ort-wasm-simd-threaded.jsep.wasm']) {
-  const from = join(root, 'node_modules', 'onnxruntime-web', 'dist', file);
-  if (existsSync(from)) await cp(from, join(site, 'vendor', file));
-}
 await cp(join(root, 'dist'), join(site, 'dist'), { recursive: true });
 
 // The page lives one level deeper in the repo (web/index.html next to ../dist),

@@ -193,6 +193,14 @@ the file had never been split.
   in JS can prevent that; keep allocations minimal and free sessions when switching voices.
 - **A voice switch costs another 181 MB.** Encoder + decoder are per-voice and not shareable.
 - **`RTF > 1` on low-end devices is expected.** That is why `file` mode exists.
+- **WebGPU does not run this graph.** Tried and measured on onnxruntime-web 1.22: the int8
+  decoder carries int32 zero-point paths its WebGPU kernel does not implement —
+  `[DequantizeLinear] decoder.asr_res.0.bias_DequantizeLinear failed: In the case of
+  dequantizing int32 there is no zero point`. Listing `['webgpu','wasm']` does not rescue it,
+  because the node is claimed by WebGPU when the graph is partitioned and fails at run time.
+  A fp16 decoder would run on the GPU but is 2–4× the 107 MB. Re-test after an ORT upgrade;
+  the experiment lives in git at `6015e3b` (`?ep=webgpu` plus a dev-panel radio group) and
+  costs 21 MB of jsep wasm, which is why it is not on `main`.
 
 ## Style
 

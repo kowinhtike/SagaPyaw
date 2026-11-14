@@ -134,10 +134,6 @@
   summary { cursor: pointer; color: var(--dim); font-size: 12px; margin-top: 10px; }
   details .inner { padding-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--dim); }
   details .inner code { font-family: var(--mono); color: var(--accent); }
-  /* Engine picker: CPU (wasm) or GPU (webgpu), for comparing on real hardware. */
-  details .inner .ep { display: inline-flex; gap: 10px; align-items: center; }
-  details .inner .ep label { display: inline-flex; gap: 4px; align-items: center; cursor: pointer; }
-  details .inner .ep input { width: 13px; height: 13px; margin: 0; accent-color: var(--accent); }
   /* Attribution, not navigation: small, quiet, and the only outbound link on the page. */
   footer.credit {
     margin-top: auto; padding-top: 12px; border-top: 1px solid var(--line);
@@ -194,6 +190,7 @@
 </main>
 
 <script type="module">
+import * as ort from './vendor/ort.wasm.bundle.min.mjs';
 import { SagaSynthesizer, encodeWav } from '../dist/sagapyaw.mjs';
 import { StreamPlayer } from './player.js';
 import {
@@ -203,17 +200,6 @@ import {
 
 const SR = 24000;
 const params = new URLSearchParams(location.search);
-
-/**
- * Execution provider. `wasm` is the default and stays the default: it is the
- * smaller download (48 KB against 401 KB) and on every phone measured so far it
- * is also the faster one — the decoder is int8 and memory-bound, which is the
- * case a GPU helps least with. `?ep=webgpu` exists so that claim can be tested
- * on real hardware instead of argued about; the dev panel has a radio group that
- * flips it. Loaded on demand, so nobody pays for the GPU build by accident.
- */
-const EP = params.get('ep') === 'webgpu' ? 'webgpu' : 'wasm';
-const ort = await import(EP === 'webgpu' ? './vendor/ort.webgpu.bundle.min.mjs' : './vendor/ort.wasm.bundle.min.mjs');
 
 // The four voices of nara-mini-v1. Same topology and byte-for-byte identical
 // file sizes, different weights — so the constants below hold for every voice.
@@ -284,21 +270,6 @@ let synthVoice = null;
 let loading = null;
 const fileFrac = new Map();
 
-/**
- * Build one session on the chosen engine.
- *
- * No `wasm` in the GPU list on purpose: mixing the two lets ORT partition the
- * graph and quietly copy tensors across the bus per frame, which is the case
- * that makes GPU slower than CPU. Pure GPU gives an honest answer — either it
- * takes the whole graph or it throws where the user can see it.
- */
-async function createSession(bytes) {
-  return ort.InferenceSession.create(bytes, {
-    executionProviders: EP === 'webgpu' ? ['webgpu'] : ['wasm'],
-    graphOptimizationLevel: 'all',
-  });
-}
-
 function overallProgress() {
   let sum = 0;
   for (const f of Object.values(FILES)) sum += f.weight * (fileFrac.get(f.label) ?? 0);
@@ -348,16 +319,19 @@ async function ensureModel() {
     // One graph at a time: on a phone, holding both byte arrays plus two ORT
     // heaps at once is what pushes a tab over its memory budget.
     const encBytes = await loadBytes(FILES.encoder, phase);
-    const encoder = await createSession(encBytes);
+    const encoder = await ort.InferenceSession.create(encBytes, {
+      executionProviders: ['wasm'],
+      graphOptimizationLevel: 'all',
+    });
     const decBytes = await loadBytes(FILES.decoder, phase);
-    const decoder = await createSession(decBytes);
+    const decoder = await ort.InferenceSession.create(decBytes, {
+      executionProviders: ['wasm'],
+      graphOptimizationLevel: 'all',
+    });
 
     synth = SagaSynthesizer.fromSessions(ort, encoder, decoder, metadata);
     synthVoice = VOICE;
     setBar(1);
-    // The engine line is only honest after the sessions exist, so refresh the
-    // panel now rather than when the voice was picked.
-    refreshStorage();
     // The voice just used goes to the front of the recency list, and anything
     // beyond the two most recent is dropped from the cache.
     touchVoice(VOICE);
@@ -732,15 +706,6 @@ async function refreshStorage() {
   const parts = [`<span>voice <code>${VOICE}</code></span>`];
   if (DEV) {
     parts.push(`<span>threads <code>${ort.env.wasm.numThreads}</code> / ${hw} cores</span>`);
-    // Which engine ran. A radio group rather than a URL-only switch, because the
-    // whole point is to compare the two on the same phone in the same minute.
-    parts.push(
-      `<span class="ep">engine` +
-        `<label><input type="radio" name="ep" value="wasm"${EP === 'wasm' ? ' checked' : ''}> CPU</label>` +
-        `<label><input type="radio" name="ep" value="webgpu"${EP === 'webgpu' ? ' checked' : ''}> GPU</label>` +
-        `</span>`,
-    );
-    if (EP === 'webgpu') parts.push('<span>ran on <code>webgpu</code></span>');
     if (est) parts.push(`<span>storage <code>${bytesLabel(est.usage)}</code> / ${bytesLabel(est.quota)}</span>`);
     // "not persisted" reads like an error the user must fix; it is only useful
     // to someone inspecting storage policy.
@@ -748,16 +713,6 @@ async function refreshStorage() {
     parts.push('<button class="ghost" id="clear">cache ရှင်းပါ</button>');
   }
   $('details').innerHTML = parts.join('');
-  for (const input of document.querySelectorAll('input[name="ep"]')) {
-    input.onchange = () => {
-      // The provider is chosen before the module loads, so this is a reload.
-      // The weights are already cached; only the sessions are rebuilt.
-      const next = new URLSearchParams(location.search);
-      if (input.value === 'webgpu') next.set('ep', 'webgpu');
-      else next.delete('ep');
-      location.search = next.toString();
-    };
-  }
   const clear = $('clear');
   if (clear) {
     clear.onclick = async () => {
