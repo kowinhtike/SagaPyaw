@@ -2,8 +2,21 @@
  * App-shell cache. Deliberately knows nothing about the 181 MB voice files:
  * those live in the Cache API under `sagapyaw-model-v1` and are managed by the page,
  * so a shell update can never invalidate a model the user already downloaded.
+ *
+ * Strategy: **network first** for everything the build produces, cache only as
+ * the offline fallback. The first version of this file served the shell cache
+ * first, which meant a returning visitor kept the HTML and JS of whichever
+ * build they happened to install — a normal refresh showed the old UI forever,
+ * and only a hard reload (which bypasses the worker) or clearing site data
+ * showed the new one. Nothing in the file names changes between builds, so
+ * cache-first had no way to notice.
+ *
+ * `vendor/` is the one exception: 11 MB of onnxruntime wasm that only changes
+ * when the dependency is upgraded, and whose URL is pinned by `immutable`
+ * headers. Re-downloading it on every load would cost more than the staleness
+ * it would prevent.
  */
-const SHELL = 'sagapyaw-shell-v1';
+const SHELL = 'sagapyaw-shell-v2';
 
 const ASSETS = [
   './index.html',
@@ -18,6 +31,9 @@ const ASSETS = [
   './vendor/ort-wasm-simd-threaded.mjs',
   './vendor/ort-wasm-simd-threaded.wasm',
 ];
+
+/** Cache-first: pinned, content-addressed by version, expensive to refetch. */
+const PINNED = /\/vendor\//;
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -56,8 +72,17 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
       const names = await caches.keys();
-      await Promise.all(names.filter((n) => n.startsWith('sagapyaw-shell-') && n !== SHELL).map((n) => caches.delete(n)));
+      const stale = names.filter((n) => n.startsWith('sagapyaw-shell-') && n !== SHELL);
+      await Promise.all(stale.map((n) => caches.delete(n)));
       await self.clients.claim();
+      // Replacing an older shell means the open pages are still showing the
+      // build that shell was made for, and that old page cannot fix itself — it
+      // predates the reload-on-update code below. Reload them here instead, so
+      // the first visit after a deploy lands on the new build. A first install
+      // has no stale shell, so nothing is reloaded under a new visitor.
+      if (!stale.length) return;
+      const windows = await self.clients.matchAll({ type: 'window' });
+      await Promise.all(windows.map((client) => client.navigate(client.url).catch(() => {})));
     })(),
   );
 });
@@ -71,19 +96,46 @@ self.addEventListener('fetch', (event) => {
   // The model has its own cache and its own progress reporting.
   if (url.pathname.includes('/models/')) return;
 
-  event.respondWith(
-    (async () => {
-      const cache = await caches.open(SHELL);
-      const hit = await cache.match(request, { ignoreSearch: true });
-      // A redirected response must never satisfy a navigation (Safari throws).
-      // Entries written by an older version of this file could be redirected, so
-      // fall through to the network instead and let the put below heal the cache.
-      if (hit && !hit.redirected) return hit;
-      const res = await fetch(request);
-      if (res.ok && res.type === 'basic' && !res.redirected) {
-        cache.put(request, res.clone()).catch(() => {});
-      }
-      return res;
-    })(),
-  );
+  event.respondWith(url.pathname.includes('/vendor/') ? cachedFirst(request) : networkFirst(request, url));
 });
+
+/** Pinned dependency: the cached copy wins, the network only fills a gap. */
+async function cachedFirst(request) {
+  const cache = await caches.open(SHELL);
+  const hit = await cache.match(request);
+  // A redirected response must never satisfy a navigation (Safari throws).
+  // Entries written by an older version of this file could be redirected, so
+  // fall through to the network instead and let the put below heal the cache.
+  if (hit && !hit.redirected) return hit;
+  const res = await fetch(request);
+  if (res.ok && res.type === 'basic' && !res.redirected) {
+    cache.put(request, res.clone()).catch(() => {});
+  }
+  return res;
+}
+
+/**
+ * Everything else: ask the network, fall back to the cache when offline.
+ *
+ * `cache: 'no-cache'` is what makes this work against the old `immutable`
+ * headers — a stored copy is revalidated instead of being trusted for a year.
+ * For navigations the cache key drops the query string, because `?text=` and
+ * `?auto=` are parameters of one document, not separate documents; storing each
+ * variant would leave a shelf of stale HTML behind.
+ */
+async function networkFirst(request, url) {
+  const cache = await caches.open(SHELL);
+  const key = request.mode === 'navigate' ? `${url.origin}${url.pathname}` : request;
+  try {
+    const res = await fetch(request, { cache: 'no-cache' });
+    // Redirects are returned untouched: caching one breaks the next navigation.
+    if (res.ok && res.type === 'basic' && !res.redirected) {
+      cache.put(key, res.clone()).catch(() => {});
+    }
+    return res;
+  } catch (err) {
+    const hit = await cache.match(key, { ignoreSearch: true });
+    if (hit && !hit.redirected) return hit;
+    throw err;
+  }
+}

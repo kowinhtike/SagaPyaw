@@ -724,7 +724,27 @@ $('install').onclick = async () => {
   $('install').hidden = true;
 };
 
-if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+if ('serviceWorker' in navigator && location.protocol !== 'file:' && params.get('sw') !== '0') {
+  // A new build arrives as new bytes in sw.js. The fresh worker claims this page
+  // at once, but the page in front of the user was rendered from the old shell,
+  // so reload once — that is what saves them from being told to hard-reload.
+  // Skipped on a first visit (nothing controlled this page, so the claim is not
+  // an update) and skipped once anything has been touched, where a reload would
+  // throw away what the user typed.
+  const wasControlled = Boolean(navigator.serviceWorker.controller);
+  let touched = false;
+  const markTouched = () => {
+    touched = true;
+  };
+  addEventListener('input', markTouched, { capture: true, once: true });
+  addEventListener('pointerdown', markTouched, { capture: true, once: true });
+  addEventListener('keydown', markTouched, { capture: true, once: true });
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!wasControlled || touched || reloaded) return;
+    reloaded = true;
+    location.reload();
+  });
   navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
 

@@ -130,11 +130,20 @@ const headers = `# Multi-threaded WASM needs cross-origin isolation.
 /index.html
   Cache-Control: no-cache
 
+/player.js
+  Cache-Control: no-cache
+
+/model-store.js
+  Cache-Control: no-cache
+
 /vendor/*
   Cache-Control: public, max-age=31536000, immutable
 
+# Not immutable: these file names are stable across builds, so a year-long
+# fresh copy is a year of the old UI. They are 8–107 KB; revalidating costs a
+# 304, while a stale one costs a reload and a confused user.
 /dist/*
-  Cache-Control: public, max-age=31536000, immutable
+  Cache-Control: no-cache
 
 /models/*
   Cache-Control: public, max-age=31536000, immutable
@@ -152,9 +161,13 @@ const vercel = {
       ],
     },
     {
-      source: '/(vendor|dist|models)/(.*)',
+      // The wasm and the weights never change under a stable name; the app's own
+      // JS does, and is served revalidated for the same reason as in `_headers`.
+      source: '/(vendor|models)/(.*)',
       headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],
     },
+    { source: '/dist/(.*)', headers: [{ key: 'Cache-Control', value: 'no-cache' }] },
+    { source: '/(player|model-store).js', headers: [{ key: 'Cache-Control', value: 'no-cache' }] },
     { source: '/sw.js', headers: [{ key: 'Cache-Control', value: 'no-cache' }] },
   ],
 };

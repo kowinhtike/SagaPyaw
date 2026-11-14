@@ -187,7 +187,7 @@ Everything below is wired up:
 | `web/model-store.js` | Downloads each file **through** a counting stream straight into the Cache API — 181 MB never sits in JS memory twice. Falls back to a buffered put where Safari refuses streaming bodies. Also owns the voice recency list and the two-voice eviction. |
 | `synth.dispose()` | Frees both ORT graphs before another voice is fetched. The picker will not switch mid-synthesis; it asks you to wait rather than tearing down a running decode. |
 | `ort.env.wasm.proxy = true` | Runs inference in a worker. Without it a 5 s decode freezes the main thread, which on a phone looks like a hang and makes "ရပ်" dead. Measured: stop now settles in 0.2 s. |
-| `web/sw.js` + `manifest.webmanifest` | Installable PWA, app shell cached for offline. The 181 MB models are deliberately **not** in the service worker cache, so a shell update can never invalidate them. |
+| `web/sw.js` + `manifest.webmanifest` | Installable PWA. The shell is served **network first** with the cache as the offline fallback, because every deploy reuses the same file names — cache-first kept returning visitors on whichever build they first installed, and a normal refresh could not fix it. `vendor/` is the one cache-first exception (11 MB of pinned wasm). The 181 MB models are deliberately **not** in this cache, so a shell update can never invalidate them. |
 
 ### Two buttons, two ways to spend the same compute
 

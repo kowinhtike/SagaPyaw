@@ -47,9 +47,16 @@ Break one of these and the app silently degrades instead of failing loudly.
    **Switching voices must call `synth.dispose()` before the next voice is fetched** — two
    voices is ~360 MB of weights plus two ORT heaps, and that is what makes a phone reload.
 6. **Cache names are user data.** `sagapyaw-model-v1` (Cache API) holds the 181 MB of weights and
-   `sagapyaw-shell-v1` (service worker) holds the app shell. Changing what a URL *means* requires
-   bumping the cache name, otherwise returning users keep stale bytes forever. Never put the
-   model inside the service worker cache.
+   `sagapyaw-shell-v2` (service worker) holds the app shell. Never put the model inside the
+   service worker cache.
+   The shell is **network first** and the model is **cache first**, and the difference matters:
+   the shell changes with every deploy under file names that never change, so cache-first there
+   meant a returning visitor kept the old UI until they hard-reloaded or cleared site data
+   (`npm run test:sw` is the guard). The model is 181 MB and effectively immutable, so the cache
+   is the source of truth for it. Bump `SHELL` only when the *contents* of the cache change
+   shape — a stale shell is deleted and its open pages are reloaded by `activate`.
+   `/dist/*` must stay `no-cache` in `_headers`: a year-fresh copy under a stable name is a year
+   of the old app, and no service worker fix can rescue that.
 7. **iOS specifics.** `AudioContext` must be created/resumed inside a user gesture, and
    `navigator.audioSession.type = 'playback'` is what makes audio ignore the silent switch
    (iOS 16.4+). Do not move either out of `player.unlock()`.
@@ -57,8 +64,8 @@ Break one of these and the app silently degrades instead of failing loudly.
    Build-time tools (esbuild, typescript, puppeteer-core) are fine.
 9. **Keep it one page.** The user asked explicitly for fewer choices. Do not add pages, tabs or
    mode switches to the shipped UI; put tools under `web/dev/` (never copied into `site/`) and
-   add query params (`?voice=`, `?text=`, `?auto=`, `?threads=`, `?prewarm=0`) for anything a
-   developer needs.
+   add query params (`?voice=`, `?text=`, `?auto=`, `?threads=`, `?prewarm=0`, `?sw=0`) for
+   anything a developer needs.
    The one exception is the voice row between the text box and the button: four voices are
    content, not a mode, and they are always on screen rather than hidden behind a control.
 
@@ -81,10 +88,10 @@ src/                TypeScript text frontend + inference (the library)
   inference.ts      SagaSynthesizer: runPiece / synthesizeStream / synthesize / encodeWav
   index.ts          textToPhonemes() convenience wrapper
 web/                the client
-  index.html        THE APP. One page: textarea, voice row, one button, player, download
+  index.html        THE APP. One page: textarea, voice row, two buttons, player, download
   player.js         StreamPlayer: schedules chunks on the AudioContext clock
   model-store.js    Cache API downloader + split-file reassembly
-  sw.js             app-shell cache (never the model)
+  sw.js             app-shell cache, network first (never the model)
   dev/              inspector.html (phoneme/token ids), synth.html (bare demo)
 tools/              build, pack, serve, tests, reference oracle
 reference/          unmodified Python frontend from the model repo (oracle, do not edit)
@@ -105,6 +112,7 @@ npm run synth -- --text "မင်္ဂလာပါ။" --out out/demo.wav
 npm run test:browser          # headless Chromium, stream mode (needs serve on :8100)
 npm run test:wav              # headless Chromium, file mode; saves out/wav-mode.wav
 npm run test:voices           # voice picker + LRU-2 eviction, no downloads
+npm run test:sw               # a plain refresh must show the next build (self-contained)
 npm run pack                  # site/, no weights (~11 MB)
 npm run pack:split            # site/, weights included and split to ≤20 MiB per file
 npm run build:site            # CI: fetch models → build → pack:split (what hosts run)
