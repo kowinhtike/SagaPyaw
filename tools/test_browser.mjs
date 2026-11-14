@@ -42,6 +42,18 @@ try {
   if (!target.searchParams.has('text')) {
     target.searchParams.set('text', 'မင်္ဂလာပါ။ ဒီနေ့ ရာသီဥတု ကောင်းတယ်။');
   }
+  // The primary button is play and stop at once, so the harness has to see the
+  // label change while the run is live. Sampling starts before any page script
+  // runs, and a run lasts seconds, so a 25 ms poll cannot miss it.
+  await page.evaluateOnNewDocument(() => {
+    window.__labels = [];
+    setInterval(() => {
+      const button = document.getElementById('read');
+      const label = button?.textContent.trim();
+      if (label && window.__labels[window.__labels.length - 1] !== label) window.__labels.push(label);
+    }, 25);
+  });
+
   await page.goto(target.href, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => document.title.startsWith('ok ') || document.title.startsWith('error '), {
     timeout: 180000,
@@ -56,6 +68,7 @@ try {
     stats: document.getElementById('stats').innerText,
     synth: window.__lastSynth ?? null,
     isolated: self.crossOriginIsolated,
+    labels: window.__labels ?? [],
   }));
 
   console.log('env      ', result.env);
@@ -63,11 +76,33 @@ try {
   console.log('phonemes ', result.phon);
   console.log('stats    ', result.stats.replace(/\s+/g, ' '));
   console.log('measured ', JSON.stringify(result.synth));
+  console.log('labels   ', result.labels.join(' → '));
   if (logs.length) console.log('console  ', logs.join('\n           '));
 
   await page.screenshot({ path: 'out/browser-demo.png' });
   console.log('screenshot out/browser-demo.png');
-  if (!result.title.startsWith('ok ')) process.exitCode = 1;
+  // A run that never showed ရပ် means the single button stopped doubling as stop.
+  const toggled = result.labels.includes('ရပ်');
+  console.log(`button   ${toggled ? 'ok' : 'FAIL'} · primary toggled to ရပ် while running`);
+
+  // ...and it has to come back once the last chunk has played out. A stuck ရပ်
+  // would leave the app with no way to start again.
+  const settled = await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const started = Date.now();
+        const tick = () => {
+          const label = document.getElementById('read').textContent.trim();
+          if (label === 'ဖတ်ပါ' || Date.now() - started > 15000) resolve(label);
+          else setTimeout(tick, 100);
+        };
+        tick();
+      }),
+  );
+  const back = settled === 'ဖတ်ပါ';
+  console.log(`button   ${back ? 'ok' : 'FAIL'} · returned to ဖတ်ပါ after the audio drained (${settled})`);
+
+  if (!result.title.startsWith('ok ') || !toggled || !back) process.exitCode = 1;
 } finally {
   await browser.close();
 }

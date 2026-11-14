@@ -88,7 +88,7 @@ src/                TypeScript text frontend + inference (the library)
   inference.ts      SagaSynthesizer: runPiece / synthesizeStream / synthesize / encodeWav
   index.ts          textToPhonemes() convenience wrapper
 web/                the client
-  index.html        THE APP. One page: textarea, voice row, two buttons, player, download
+  index.html        THE APP. One page: textarea, voice row, one primary, player, download
   player.js         StreamPlayer: schedules chunks on the AudioContext clock
   model-store.js    Cache API downloader + split-file reassembly
   sw.js             app-shell cache, network first (never the model)
@@ -141,7 +141,7 @@ sample counts identical for `verify_audio.py`. Do not switch the default. For st
 *first* chunk is cut short at whitespace (default 22 chars) so audio starts in about a second;
 `firstLimit: 0` disables that.
 
-**Two buttons, two behaviours** (`web/index.html`):
+**One primary, two behaviours** (`web/index.html`):
 
 - **ဖတ်ပါ** (`stream`) — push each chunk to `StreamPlayer`, which schedules it on the audio clock
   ahead of the previous one, and keep rendering while the last one plays. Fast first audio.
@@ -149,6 +149,12 @@ sample counts identical for `verify_audio.py`. Do not switch the default. For st
   is accepted by the user, not a bug — do not "fix" it by falling back to file mode.
 - **WAV ထုတ်ပါ** (`file`) — accumulate every chunk, then publish a WAV `Blob` in an
   `<audio controls>` element. It must **not** autoplay: the point is to hand over a file.
+
+The same button is the stop control: while a run is live (or the last chunks are still sounding)
+its label becomes **ရပ်** and its colour turns red. Do not add a separate stop button back — it
+spent its whole life greyed out and made the row look like three equal choices. Export is a
+quiet text button under the primary, not a peer of it: four pills plus two solid buttons plus a
+disabled stop is what made the card read as a wall of controls.
 
 There is no automatic mode selection any more. `?auto=read` / `?auto=export` drives one button
 for the headless harnesses.

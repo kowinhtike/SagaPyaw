@@ -103,12 +103,35 @@ try {
   check('the box starts empty', emptyState.value === '', JSON.stringify(emptyState.value));
   check('the hint asks for the text to speak', /အသံထုတ်လိုသော/.test(emptyState.placeholder), emptyState.placeholder);
 
-  // Both actions must exist, and neither may start a download with no text.
+  // One primary that becomes stop, plus a quiet export link. A separate stop
+  // button was removed on purpose: it spent its whole life greyed out.
   const actions = await page.evaluate(() => ({
     read: document.getElementById('read')?.innerText.trim(),
     export: document.getElementById('export')?.innerText.trim(),
+    stop: Boolean(document.getElementById('stop')),
+    primaryCount: document.querySelectorAll('.actions button').length,
+    exportIsLink: document.getElementById('export')?.classList.contains('linkbtn'),
   }));
-  check('there are two actions', actions.read === 'ဖတ်ပါ' && /WAV/.test(actions.export ?? ''), `${actions.read} / ${actions.export}`);
+  check(
+    'one primary plus an export link',
+    actions.read === 'ဖတ်ပါ' && /WAV/.test(actions.export ?? '') && !actions.stop,
+    `${actions.read} / ${actions.export}`,
+  );
+  check('the action row holds one button', actions.primaryCount === 1, String(actions.primaryCount));
+  check('export is the quiet link, not a peer button', actions.exportIsLink === true);
+
+  // The stop face has to look like a different action, not a recoloured label.
+  // (The label flip itself is observed for real in test_browser, where a run
+  // actually happens — there is no model here to run.)
+  const stopLook = await page.evaluate(() => {
+    const read = document.getElementById('read');
+    const idle = getComputedStyle(read).color;
+    read.classList.add('stop');
+    const stopping = getComputedStyle(read).color;
+    read.classList.remove('stop');
+    return { idle, stopping };
+  });
+  check('the stop face is visually distinct', stopLook.idle !== stopLook.stopping, `${stopLook.idle} → ${stopLook.stopping}`);
 
   await page.click('#read');
   await new Promise((r) => setTimeout(r, 150));

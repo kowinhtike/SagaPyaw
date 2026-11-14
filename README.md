@@ -189,12 +189,12 @@ Everything below is wired up:
 | `ort.env.wasm.proxy = true` | Runs inference in a worker. Without it a 5 s decode freezes the main thread, which on a phone looks like a hang and makes "ရပ်" dead. Measured: stop now settles in 0.2 s. |
 | `web/sw.js` + `manifest.webmanifest` | Installable PWA. The shell is served **network first** with the cache as the offline fallback, because every deploy reuses the same file names — cache-first kept returning visitors on whichever build they first installed, and a normal refresh could not fix it. `vendor/` is the one cache-first exception (11 MB of pinned wasm). The 181 MB models are deliberately **not** in this cache, so a shell update can never invalidate them. |
 
-### Two buttons, two ways to spend the same compute
+### One button, two ways to spend the same compute
 
-| Button | Behaviour |
+| Control | Behaviour |
 |---|---|
-| **ဖတ်ပါ** (Realtime) | Plays each sentence as soon as it is rendered, and keeps rendering the next one while the current one is speaking. First audio in ~1 s. **Cannot** beat real time: if generation is slower than playback the gaps are audible, and that is accepted — it reads as much as it can, as fast as it can. |
-| **WAV ထုတ်ပါ** (Export) | Renders the whole passage first, then hands over one `Blob` in a plain `<audio controls>` element. No gaps, seekable, nothing to hear until it finishes. It does not start playing on its own — play it or download it yourself. |
+| **ဖတ်ပါ** (Realtime) | Plays each sentence as soon as it is rendered, and keeps rendering the next one while the current one is speaking. First audio in ~1 s. **Cannot** beat real time: if generation is slower than playback the gaps are audible, and that is accepted — it reads as much as it can, as fast as it can. While it runs, this same button reads **ရပ်** and stops. |
+| **WAV ထုတ်ပါ** (Export) | A quiet text button under the primary, because it is the rare action. Renders the whole passage first, then hands over one `Blob` in a plain `<audio controls>` element. No gaps, seekable, nothing to hear until it finishes. It does not start playing on its own — play it or download it yourself. |
 
 The choice is explicit rather than guessed from the user agent, which is what the earlier
 `decideMode()` did: on a phone it always picked the slow path, so the app felt broken.

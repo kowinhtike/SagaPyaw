@@ -90,12 +90,17 @@
   button:active:not(:disabled) { transform: translateY(1px); }
   button:disabled { opacity: .42; cursor: default; }
   button.primary { flex: 1; background: #123047; border-color: #23577a; color: var(--accent); font-weight: 500; }
-  /* Export is the secondary action: same row, less weight, narrower. */
-  #export { flex: 0 0 auto; padding: 0 13px; font-size: 15px; }
+  /* Play and stop are one control: while a run is live the label and colour
+     change, so stopping costs no extra button and no permanently greyed one. */
+  button.primary.stop { background: #2a1a1f; border-color: #5c2f39; color: var(--bad); }
+  /* Export is the rare action, so it is a quiet text button under the primary
+     instead of a peer of it. Full width keeps the tap target honest on a phone. */
+  button.linkbtn {
+    display: block; width: 100%; min-height: 34px; margin-top: 2px; padding: 0;
+    background: transparent; border: 0; color: var(--dim); font-size: 13px;
+  }
+  button.linkbtn:hover:not(:disabled), button.linkbtn:focus-visible { color: var(--accent); }
   button.ghost { background: transparent; color: var(--dim); min-height: 36px; font-size: 13px; padding: 0 10px; }
-  /* No stop control while nothing is running: it appears only when enabled. */
-  #stop { flex: 0 0 auto; min-width: 62px; padding: 0 12px; font-size: 14px; }
-  #stop:disabled { display: none; }
   .bar { height: 4px; background: var(--panel2); border-radius: 99px; overflow: hidden; margin-top: 12px; }
   .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .18s linear; }
   .bar.hide { display: none; }
@@ -153,9 +158,8 @@
     <div class="voices" id="voiceList" role="group" aria-label="အသံ"></div>
     <div class="actions">
       <button class="primary" id="read">ဖတ်ပါ</button>
-      <button id="export">WAV ထုတ်ပါ</button>
-      <button id="stop" disabled>ရပ်</button>
     </div>
+    <button class="linkbtn" id="export">WAV ထုတ်ပါ ↓</button>
     <div class="bar hide" id="bar"><i></i></div>
     <div class="status" id="status"></div>
   </section>
@@ -355,12 +359,16 @@ function getPlayer() {
   return player;
 }
 
-/** One flag for both actions: they share the model, so they cannot run together. */
+/**
+ * One control for both actions. `busy` comes from the caller; the player's own
+ * tail is added here because a stream can finish rendering while its last
+ * chunks are still sounding, and stopping has to stay reachable until they stop.
+ */
 function setBusy(busy) {
-  $('read').disabled = busy;
-  $('export').disabled = busy;
-  // Stop stays live while the stream is still draining after the last chunk.
-  $('stop').disabled = !busy && !player?.playing;
+  const active = busy || Boolean(player?.playing);
+  $('read').classList.toggle('stop', active);
+  $('read').textContent = active ? 'ရပ်' : 'ဖတ်ပါ';
+  $('export').disabled = active;
 }
 
 /* ------------------------------------------------------------ wav build ---- */
@@ -493,7 +501,6 @@ async function play(mode) {
     });
 
     say(mode === 'stream' ? 'ဖတ်နေတယ် …' : 'အသံ ထုတ်နေတယ် …');
-    $('stop').disabled = false;
 
     for (;;) {
       const { value: chunk, done } = await gen.next();
@@ -582,15 +589,21 @@ async function play(mode) {
   }
 }
 
-$('read').onclick = () => play('stream');
-$('export').onclick = () => play('file');
-$('stop').onclick = () => {
+/** Stop whatever is happening, whether that is rendering or still-sounding audio. */
+function stopRun() {
   stopped = true;
   running?.abort.abort();
   player?.stop();
-  $('stop').disabled = true;
   say('<span class="warn">ရပ်လိုက်တယ်</span>');
+}
+
+$('read').onclick = () => {
+  // One button, two jobs: while anything is running or sounding it stops, and
+  // the rest of the time it starts. The label already says which.
+  if (running || player?.playing) stopRun();
+  else play('stream');
 };
+$('export').onclick = () => play('file');
 
 /* ---------------------------------------------------------------- voices -- */
 
