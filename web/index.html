@@ -44,7 +44,7 @@
   /* Voice picker: four pills between the text box and the button. The border is
      the state — green = the voice in use, blue = downloaded and ready, grey =
      needs another 181 MB. */
-  .voices { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0 0; }
+  .voices { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 0 0; }
   .voices button {
     display: inline-flex; align-items: center; gap: 7px; min-height: 36px;
     background: var(--panel2); border: 1px solid var(--line); border-radius: 11px;
@@ -52,7 +52,7 @@
     padding: 0 12px; cursor: pointer;
     transition: border-color .15s ease, color .15s ease;
   }
-  .voices button small { font-family: var(--mono); font-size: 10.5px; font-weight: 400; color: var(--dim); }
+  .voices button small { font-family: var(--mono); font-size: 11px; font-weight: 400; color: var(--dim); }
   /* Downloaded: blue. */
   .voices button.cached { border-color: var(--accent); color: var(--accent); }
   .voices button.cached small { color: var(--accent); opacity: .8; }
@@ -60,6 +60,16 @@
      question this row answers, and the answer must be the loudest thing on it. */
   .voices button[aria-pressed="true"] { border-color: var(--ok); color: var(--ok); }
   .voices button[aria-pressed="true"] small { color: var(--ok); opacity: .8; }
+  /* The cost lives here, once, instead of on every pill: four copies of
+     "181.2 MB" is what pushed the row onto two lines. */
+  .voicenote { margin: 12px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--warn); }
+  .voicenote[hidden] { display: none; }
+  /* Four pills do not fit across a phone, and flex-wrap leaves the fourth alone
+     on its own line. A fixed 2×2 grid reads as deliberate instead. */
+  @media (max-width: 430px) {
+    .voices { display: grid; grid-template-columns: 1fr 1fr; }
+    .voices button { justify-content: center; }
+  }
   .envchip { display: none; }
   .envchip.show { display: inline-flex; align-items: center; }
   .envchip .dot { margin-right: 5px; }
@@ -136,7 +146,8 @@
   </header>
 
   <section class="card">
-    <textarea id="text" spellcheck="false" autocomplete="off" placeholder="မြန်မာစာ ရိုက်ထည့်ပါ …">မင်္ဂလာပါ။ ဒီနေ့ ရာသီဥတု ကောင်းတယ်။</textarea>
+    <textarea id="text" spellcheck="false" autocomplete="off" placeholder="အသံထုတ်လိုသော စာသားရေးရန် …"></textarea>
+    <p class="voicenote" id="voiceNote" hidden>အသံ တစ်မျိုးလျှင် 181.2 MB — ဒေါင်းရာမှာ အချိန်ကြာနိုင်တယ်</p>
     <div class="voices" id="voiceList" role="group" aria-label="အသံ"></div>
     <div class="actions">
       <button class="primary" id="go">ဖတ်ပါ</button>
@@ -218,6 +229,11 @@ ort.env.wasm.proxy = params.get('proxy') !== '0';
 
 const $ = (id) => document.getElementById(id);
 const say = (html) => { $('status').innerHTML = html; };
+
+// `?text=` pre-fills the box so a link can carry the sentence to speak. The box
+// is empty by default: the placeholder is a prompt, not a sample to overwrite.
+const presetText = params.get('text');
+if (presetText) $('text').value = presetText;
 // Diagnostics (RTF, tokens, phonemes, storage state) are for whoever is debugging
 // the model, not for people reading text aloud. One query param keeps them out of
 // the way without adding a switch to the UI.
@@ -568,7 +584,11 @@ const voiceList = $('voiceList');
  * One pill per voice, always visible. The border carries the state:
  *   green  — the voice in use (`aria-pressed`), styled to outrank blue
  *   blue   — downloaded and ready (`cached`)
- *   grey   — still needs 181 MB, shown as the size so the cost is not a surprise
+ *   grey   — still needs a download, marked with a down arrow
+ *
+ * The size and the "this takes a while" warning sit above the row, once, rather
+ * than inside every pill — four copies of "181.2 MB" is what pushed the row
+ * onto two lines on a phone.
  */
 async function renderVoices() {
   const states = await Promise.all(
@@ -584,11 +604,14 @@ async function renderVoices() {
       button.dataset.voice = v.id;
       if (v.cached) button.classList.add('cached');
       button.setAttribute('aria-pressed', String(v.id === VOICE));
-      button.innerHTML = `${v.label} <small>${v.cached ? '✓' : `⬇ ${bytesLabel(TOTAL_WEIGHT)}`}</small>`;
+      button.innerHTML = `${v.label} <small>${v.cached ? '✓' : '⬇'}</small>`;
       button.onclick = () => selectVoice(v.id);
       return button;
     }),
   );
+  // The warning is about work left to do, so it goes away once every voice is
+  // on the device — a permanent warning is just noise.
+  $('voiceNote').hidden = states.every((v) => v.cached);
 }
 
 /** Drop everything that belongs to the voice being left behind. */

@@ -39,6 +39,11 @@ try {
 
   const target = new URL(url);
   target.searchParams.set('auto', '1');
+  // The page starts with an empty box, so the harness has to supply the sentence
+  // it wants spoken. `?text=` is the same switch a shared link would use.
+  if (!target.searchParams.has('text')) {
+    target.searchParams.set('text', 'မင်္ဂလာပါ။ ဒီနေ့ ရာသီဥတု ကောင်းတယ်။');
+  }
   await page.goto(target.href, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => document.title.startsWith('ok ') || document.title.startsWith('error '), {
     timeout: 180000,

@@ -25,7 +25,7 @@ const CHROME =
 
 // Resolved from the CSS custom properties, not hardcoded: the test should fail if
 // someone restyles the pills, and it should keep passing if only the hex changes.
-const COLOR = { green: 'rgb(110, 231, 168)', blue: 'rgb(124, 196, 255)', grey: 'rgb(38, 43, 53)' };
+const COLOR = { green: 'rgb(110, 231, 168)', blue: 'rgb(124, 196, 255)', grey: 'rgb(38, 43, 53)', warn: 'rgb(255, 184, 107)' };
 
 const browser = await puppeteer.launch({
   executablePath: CHROME,
@@ -62,17 +62,28 @@ async function seedAndReload(page, voices) {
   await page.waitForFunction(() => document.querySelectorAll('#voiceList button').length === 4);
 }
 
-/** Read the rendered state of every pill. */
+/** Read the rendered state of every pill, plus the download warning above them. */
 const readPills = (page) =>
-  page.$$eval('#voiceList button', (els) =>
-    els.map((el) => ({
-      id: el.dataset.voice,
-      label: el.querySelector('small')?.textContent.trim() ?? '',
-      current: el.getAttribute('aria-pressed') === 'true',
-      border: getComputedStyle(el).borderTopColor,
-      display: getComputedStyle(el).display,
-    })),
-  );
+  page.evaluate(() => {
+    const note = document.getElementById('voiceNote');
+    return {
+      note: {
+        visible: !note.hidden && getComputedStyle(note).display !== 'none',
+        text: note.textContent.trim(),
+        color: getComputedStyle(note).color,
+        aboveRow:
+          note.nextElementSibling?.id === 'voiceList' &&
+          Boolean(note.compareDocumentPosition(document.getElementById('voiceList')) & Node.DOCUMENT_POSITION_FOLLOWING),
+      },
+      pills: [...document.querySelectorAll('#voiceList button')].map((el) => ({
+        id: el.dataset.voice,
+        label: el.querySelector('small')?.textContent.trim() ?? '',
+        current: el.getAttribute('aria-pressed') === 'true',
+        border: getComputedStyle(el).borderTopColor,
+        display: getComputedStyle(el).display,
+      })),
+    };
+  });
 
 try {
   const page = await browser.newPage();
@@ -84,6 +95,22 @@ try {
   await page.waitForFunction(() => document.querySelectorAll('#voiceList button').length === 4);
 
   /* ------------------------------------------------- 1. placement in the page */
+
+  const emptyState = await page.evaluate(() => ({
+    value: document.getElementById('text').value,
+    placeholder: document.getElementById('text').placeholder,
+  }));
+  check('the box starts empty', emptyState.value === '', JSON.stringify(emptyState.value));
+  check('the hint asks for the text to speak', /အသံထုတ်လိုသော/.test(emptyState.placeholder), emptyState.placeholder);
+
+  // With nothing typed, ဖတ်ပါ must prompt instead of starting an 181 MB download.
+  await page.click('#go');
+  await new Promise((r) => setTimeout(r, 150));
+  const afterEmptyClick = await page.evaluate(async () => ({
+    status: document.getElementById('status').innerText,
+    cached: (await (await caches.open('sagapyaw-model-v1')).keys()).length,
+  }));
+  check('empty box prompts instead of downloading', /ရိုက်ထည့်ပါ/.test(afterEmptyClick.status) && afterEmptyClick.cached === 0, afterEmptyClick.status.replace(/\s+/g, ' '));
 
   const layout = await page.evaluate(() => {
     const list = document.getElementById('voiceList');
@@ -106,21 +133,31 @@ try {
   /* ------------------------------------------- 2. state colours, nothing cached */
 
   const cold = await readPills(page);
-  check('four pills are always visible', cold.length === 4 && cold.every((p) => p.display !== 'none'));
-  check('cold: every pill offers the download', cold.every((p) => p.label.startsWith('⬇')), cold[0].label);
-  check('cold: only the current one is green', cold[0].current && cold[0].border === COLOR.green, cold[0].border);
-  check('cold: the rest are grey', cold.slice(1).every((p) => p.border === COLOR.grey));
+  const coldPills = cold.pills;
+  check('four pills are always visible', coldPills.length === 4 && coldPills.every((p) => p.display !== 'none'));
+  check('cold: every pill shows only a down arrow', coldPills.every((p) => p.label === '⬇'), coldPills[0].label);
+  check('cold: only the current one is green', coldPills[0].current && coldPills[0].border === COLOR.green, coldPills[0].border);
+  check('cold: the rest are grey', coldPills.slice(1).every((p) => p.border === COLOR.grey));
 
-  /* ------------------------------------------------- 3. blue for cached voices */
+  /* --------------------------------------- 3. the download warning above the row */
+
+  check('warning is shown while voices are missing', cold.note.visible);
+  check('warning sits directly above the pills', cold.note.aboveRow);
+  check('warning is orange', cold.note.color === COLOR.warn, cold.note.color);
+  check('warning states the size and the wait', /181\.2 MB/.test(cold.note.text) && /ကြာ/.test(cold.note.text), cold.note.text);
+
+  /* ------------------------------------------------- 4. blue for cached voices */
 
   await seedAndReload(page, ['shoon', 'thazin']);
   const warm = await readPills(page);
-  check('warm: current voice stays green', warm[0].border === COLOR.green, `${warm[0].id} ${warm[0].border}`);
-  check('warm: cached voice turns blue', warm[1].border === COLOR.blue, `${warm[1].id} ${warm[1].border}`);
-  check('warm: cached voices show a tick', warm[0].label === '✓' && warm[1].label === '✓', `${warm[0].label} / ${warm[1].label}`);
-  check('warm: uncached voices stay grey', warm.slice(2).every((p) => p.border === COLOR.grey && p.label.startsWith('⬇')));
+  const warmPills = warm.pills;
+  check('warm: current voice stays green', warmPills[0].border === COLOR.green, `${warmPills[0].id} ${warmPills[0].border}`);
+  check('warm: cached voice turns blue', warmPills[1].border === COLOR.blue, `${warmPills[1].id} ${warmPills[1].border}`);
+  check('warm: cached voices show a tick', warmPills[0].label === '✓' && warmPills[1].label === '✓', `${warmPills[0].label} / ${warmPills[1].label}`);
+  check('warm: uncached voices stay grey', warmPills.slice(2).every((p) => p.border === COLOR.grey && p.label === '⬇'));
+  check('warning stays while two voices are missing', warm.note.visible);
 
-  /* ----------------------------------------------------- 4. switching voices */
+  /* ----------------------------------------------------- 5. switching voices */
 
   await page.click('#voiceList button[data-voice="thazin"]');
   // Wait for the re-render, not the URL: history.replaceState happens before the
@@ -129,8 +166,9 @@ try {
     () => document.querySelector('#voiceList button[data-voice="thazin"]')?.getAttribute('aria-pressed') === 'true',
   );
   const switched = await readPills(page);
-  check('the green border moves to the chosen voice', switched[1].border === COLOR.green && switched[1].current, switched[1].border);
-  check('the previous voice falls back to blue', switched[0].border === COLOR.blue && !switched[0].current, switched[0].border);
+  const switchedPills = switched.pills;
+  check('the green border moves to the chosen voice', switchedPills[1].border === COLOR.green && switchedPills[1].current, switchedPills[1].border);
+  check('the previous voice falls back to blue', switchedPills[0].border === COLOR.blue && !switchedPills[0].current, switchedPills[0].border);
   const afterSwitch = await page.evaluate(() => ({
     search: location.search,
     status: document.getElementById('status').innerText,
@@ -142,7 +180,15 @@ try {
   check('cached voice needs no download', afterSwitch.go === 'ဖတ်ပါ', afterSwitch.go);
   check('status names the voice', afterSwitch.status.includes('Thazin'), afterSwitch.status.replace(/\s+/g, ' '));
 
-  /* ------------------------------------------------------ 5. LRU-2 eviction */
+  /* ------------------------------------ 6. the warning goes away when it is done */
+
+  await seedAndReload(page, ['shoon', 'thazin', 'htet-myat', 'ko-banyar']);
+  const all = await readPills(page);
+  check('warning disappears once all four are cached', !all.note.visible);
+  check('all four pills are blue or green', all.pills.every((p) => p.border === COLOR.blue || p.border === COLOR.green));
+  check('all four pills show a tick', all.pills.every((p) => p.label === '✓'));
+
+  /* ------------------------------------------------------ 7. LRU-2 eviction */
 
   const eviction = await page.evaluate(async () => {
     const mod = await import('/web/model-store.js');

@@ -57,8 +57,8 @@ Break one of these and the app silently degrades instead of failing loudly.
    Build-time tools (esbuild, typescript, puppeteer-core) are fine.
 9. **Keep it one page.** The user asked explicitly for fewer choices. Do not add pages, tabs or
    mode switches to the shipped UI; put tools under `web/dev/` (never copied into `site/`) and
-   add query params (`?mode=file`, `?voice=`, `?threads=`, `?prewarm=0`) for anything a developer
-   needs.
+   add query params (`?mode=file`, `?voice=`, `?text=`, `?threads=`, `?prewarm=0`) for anything a
+   developer needs.
    The one exception is the voice row between the text box and the button: four voices are
    content, not a mode, and they are always on screen rather than hidden behind a control.
 

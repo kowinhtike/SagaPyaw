@@ -28,8 +28,9 @@ so it can be shared. Each voice is a full 181 MB encoder + decoder pair, and the
 the two most recently used.
 
 The pill borders say what state each voice is in — **green** for the one in use, **blue** for
-downloaded and ready, grey with `⬇ 181.2 MB` for one that still has to be fetched. Green wins
-over blue when the voice in use is also cached.
+downloaded and ready, grey with a `⬇` for one that still has to be fetched. Green wins over
+blue when the voice in use is also cached. The size and the "this takes a while" warning sit
+once above the row, in orange, and disappear when every voice is on the device.
 
 ## Verification
 
@@ -100,6 +101,9 @@ what the row writes into the URL, so a link can point at one voice:
 ```
 http://localhost:8100/web/index.html?voice=htet-myat
 ```
+
+`?text=` pre-fills the box, so a link can also carry the sentence to speak. The box itself
+starts empty — the placeholder is a prompt, not a sample.
 
 Or by hand:
 
