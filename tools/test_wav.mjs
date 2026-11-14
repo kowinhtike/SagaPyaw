@@ -38,7 +38,8 @@ try {
   page.on('pageerror', (e) => logs.push(`pageerror: ${e.message}`));
 
   const target = new URL(url);
-  target.searchParams.set('auto', '1');
+  // Export mode: render everything, then hand over a WAV. No playback.
+  if (!target.searchParams.has('auto')) target.searchParams.set('auto', 'export');
   // The page starts with an empty box, so the harness has to supply the sentence
   // it wants spoken. `?text=` is the same switch a shared link would use.
   if (!target.searchParams.has('text')) {
@@ -68,6 +69,9 @@ try {
       download: dl.download,
       duration: audio.duration,
       hasSrc: audio.src.startsWith('blob:'),
+      // Export must hand over the file without starting it: the user asked to
+      // play or download it themselves.
+      paused: audio.paused,
       playerShown: document.getElementById('out').classList.contains('show'),
       wav: window.__lastSynth ?? null,
       bytes,
@@ -78,7 +82,7 @@ try {
   console.log('stats    ', result.stats);
   console.log('size     ', result.size);
   console.log('download ', result.download);
-  console.log('audio    ', `src=${result.hasSrc} duration=${Number.isFinite(result.duration) ? result.duration.toFixed(2) : result.duration} visible=${result.playerShown}`);
+  console.log('audio    ', `src=${result.hasSrc} duration=${Number.isFinite(result.duration) ? result.duration.toFixed(2) : result.duration} visible=${result.playerShown} paused=${result.paused}`);
   console.log('measured ', JSON.stringify(result.wav));
   if (logs.length) console.log('console  ', logs.join('\n           '));
 
@@ -92,7 +96,7 @@ try {
 
   await page.screenshot({ path: 'out/wav-mode.png' });
   console.log('screenshot out/wav-mode.png');
-  if (!result.title.startsWith('ok ') || !result.bytes) process.exitCode = 1;
+  if (!result.title.startsWith('ok ') || !result.bytes || !result.paused) process.exitCode = 1;
 } finally {
   await browser.close();
 }

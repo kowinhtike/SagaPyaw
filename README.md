@@ -153,7 +153,8 @@ const samples = await synth.synthesize('မင်္ဂလာပါ။'); // Flo
 | `SagaSynthesizer.fromSessions(ort, enc, dec, meta)` | When you build sessions yourself (one graph at a time) |
 | `synth.synthesize(text)` | → `Float32Array` PCM, 24 kHz mono |
 | `synth.synthesizeStream(text, opts)` | → async generator of playable chunks |
-| `planChunks(text, limit, firstLimit)` | The chunk plan, exposed for tests and UIs |
+| `planChunks(text, limit, firstLimit, chunking)` | The chunk plan, exposed for tests and UIs |
+| `planSentenceChunks(text, limit, firstLimit)` | One chunk per sentence — what the page uses |
 | `encodeWav(samples, rate)` | → 16-bit PCM WAV bytes |
 | `setEnglishG2P(fn)` | Plug in an espeak-ng WASM backend for Latin runs |
 
@@ -181,30 +182,42 @@ Everything below is wired up:
 
 | Piece | What it does |
 |---|---|
-| `synth.synthesizeStream(text, { firstLimit, signal })` | Yields one playable chunk at a time. The first chunk is cut short at whitespace (default 22 chars) so the listener hears something in ~1 s; the rest keep the full 200-char budget. |
+| `synth.synthesizeStream(text, { firstLimit, chunking, signal })` | Yields one playable chunk at a time. The first chunk is cut short at whitespace (default 22 chars) so the listener hears something in ~1 s. |
 | `web/player.js` | Schedules chunks on the AudioContext clock instead of playing them on arrival, so gaps between chunks disappear. Unlocks on the first tap (iOS refuses otherwise) and sets `audioSession.type = 'playback'` so the silent switch does not mute it. |
 | `web/model-store.js` | Downloads each file **through** a counting stream straight into the Cache API — 181 MB never sits in JS memory twice. Falls back to a buffered put where Safari refuses streaming bodies. Also owns the voice recency list and the two-voice eviction. |
 | `synth.dispose()` | Frees both ORT graphs before another voice is fetched. The picker will not switch mid-synthesis; it asks you to wait rather than tearing down a running decode. |
 | `ort.env.wasm.proxy = true` | Runs inference in a worker. Without it a 5 s decode freezes the main thread, which on a phone looks like a hang and makes "ရပ်" dead. Measured: stop now settles in 0.2 s. |
 | `web/sw.js` + `manifest.webmanifest` | Installable PWA, app shell cached for offline. The 181 MB models are deliberately **not** in the service worker cache, so a shell update can never invalidate them. |
 
-### Two playback modes
+### Two buttons, two ways to spend the same compute
 
-| Mode | Behaviour |
+| Button | Behaviour |
+|---|---|
+| **ဖတ်ပါ** (Realtime) | Plays each sentence as soon as it is rendered, and keeps rendering the next one while the current one is speaking. First audio in ~1 s. **Cannot** beat real time: if generation is slower than playback the gaps are audible, and that is accepted — it reads as much as it can, as fast as it can. |
+| **WAV ထုတ်ပါ** (Export) | Renders the whole passage first, then hands over one `Blob` in a plain `<audio controls>` element. No gaps, seekable, nothing to hear until it finishes. It does not start playing on its own — play it or download it yourself. |
+
+The choice is explicit rather than guessed from the user agent, which is what the earlier
+`decideMode()` did: on a phone it always picked the slow path, so the app felt broken.
+
+### Chunking: where the pauses fall
+
+| `chunking` | Cut points | Used by |
 |---|---|---|
-| `stream` | Plays each chunk as it lands. First audio in ~1 s. **Cannot** beat real time: if generation is slower than playback (any phone at `threads=1`), the gaps are audible. |
-| `file` | Synthesises the whole passage, then plays one `Blob` in a plain `<audio controls>` element. No gaps possible, seekable. Costs the full generation time up front. |
+| `sentence` | One chunk per sentence (or clause), so the boundary — and the 200 ms inter-chunk gap — lands on the writer's punctuation. A fragment too short to be worth its own encode/decode pass (a bare `ဟုတ်ကဲ့။`) is joined to a neighbour. | the page, both buttons |
+| `reference` | Sentences packed together up to 200 characters, exactly like Python's `split_speech()`. | `synthesize()`, `npm run synth`, `tools/verify_audio.py` |
 
-`decideMode()` picks between them and the user never sees a switch: phones, un-isolated
-pages (`threads=1`) and anything under 8 cores get `file` for passages up to 600 characters,
-everything else streams. `?mode=file` / `?mode=stream` forces either one for testing.
+The two are not interchangeable for verification: `reference` keeps sample counts identical
+to the Python release, which is why it stays the default in the library. `sentence` is for
+listeners. Measured on a four-sentence passage: 10.03 s of audio with `reference`, 11.76 s
+with `sentence` — the difference is the model's own sentence pauses plus 3 × 200 ms, and it
+is the point rather than a regression.
 
 Either way the run ends in the same place — the accumulated samples are normalised,
 trimmed and encoded to WAV, and the player card under the status line offers replay and
 download. Streaming output and the downloadable file are therefore always the same take.
 
-`file` mode calls `synthesizeStream(text, { firstLimit: 0 })` so the chunk plan matches
-`synthesize()` — the file is the same one `npm run synth` would write. The export then
+Export calls `synthesizeStream(text, { firstLimit: 0 })` so the first chunk is not shortened;
+the file is the same one `npm run synth` would write. The export then
 peak-normalises (the model sits around 0.11 RMS, quiet on a phone speaker) and trims long
 leading/trailing silence. Verified in headless Chromium: 2.2 s of audio → 103 KB in file
 mode, 2.8 s → 130 KB in stream mode, both RIFF/WAVE 24 kHz 16-bit mono.

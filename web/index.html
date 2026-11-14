@@ -90,6 +90,8 @@
   button:active:not(:disabled) { transform: translateY(1px); }
   button:disabled { opacity: .42; cursor: default; }
   button.primary { flex: 1; background: #123047; border-color: #23577a; color: var(--accent); font-weight: 500; }
+  /* Export is the secondary action: same row, less weight, narrower. */
+  #export { flex: 0 0 auto; padding: 0 13px; font-size: 15px; }
   button.ghost { background: transparent; color: var(--dim); min-height: 36px; font-size: 13px; padding: 0 10px; }
   /* No stop control while nothing is running: it appears only when enabled. */
   #stop { flex: 0 0 auto; min-width: 62px; padding: 0 12px; font-size: 14px; }
@@ -150,7 +152,8 @@
     <p class="voicenote" id="voiceNote" hidden>အသံ တစ်မျိုးလျှင် 181.2 MB — ဒေါင်းရာမှာ အချိန်ကြာနိုင်တယ်</p>
     <div class="voices" id="voiceList" role="group" aria-label="အသံ"></div>
     <div class="actions">
-      <button class="primary" id="go">ဖတ်ပါ</button>
+      <button class="primary" id="read">ဖတ်ပါ</button>
+      <button id="export">WAV ထုတ်ပါ</button>
       <button id="stop" disabled>ရပ်</button>
     </div>
     <div class="bar hide" id="bar"><i></i></div>
@@ -346,13 +349,18 @@ function getPlayer() {
   if (!player) {
     player = new StreamPlayer(SR);
     player.onstate = (state) => {
-      if (state === 'idle' && !running) {
-        $('stop').disabled = true;
-        $('go').disabled = false;
-      }
+      if (state === 'idle' && !running) setBusy(false);
     };
   }
   return player;
+}
+
+/** One flag for both actions: they share the model, so they cannot run together. */
+function setBusy(busy) {
+  $('read').disabled = busy;
+  $('export').disabled = busy;
+  // Stop stays live while the stream is still draining after the last chunk.
+  $('stop').disabled = !busy && !player?.playing;
 }
 
 /* ------------------------------------------------------------ wav build ---- */
@@ -395,8 +403,14 @@ function mergeChunks(parts) {
 
 let objectUrl = null;
 
-/** Turn the accumulated chunks into one WAV and show it in the player card. */
-function publish(parts, { replay }) {
+/**
+ * Turn the accumulated chunks into one WAV and show it in the player card.
+ *
+ * It never starts playing on its own: in Realtime mode the audio has already
+ * been heard through the stream, and in Export mode the point is to hand over a
+ * file. Playing it again would talk over the user.
+ */
+function publish(parts) {
   let merged = trimSilence(mergeChunks(parts));
   const gain = peakNormalize(merged);
 
@@ -415,7 +429,6 @@ function publish(parts, { replay }) {
   $('size').textContent = `${(merged.length / SR).toFixed(1)}s · ${bytesLabel(blob.size)}`;
   $('out').classList.add('show');
 
-  if (replay) audio.play().catch(() => { /* iOS may want a second tap */ });
   return { seconds: merged.length / SR, bytes: blob.size, gain };
 }
 
@@ -425,20 +438,16 @@ let running = null;
 let stopped = false;
 
 /**
- * Streaming starts talking in ~1 s but cannot outrun the model: if a chunk takes
- * longer to make than it takes to play, the gap is audible. Phones at threads=1
- * always lose that race, so short passages are rendered to a file first and
- * played from an <audio> element, which cannot gap. No switch for the user.
+ * Two ways to spend the same compute, chosen by the user rather than guessed.
+ *
+ * - `stream` (Realtime): play each sentence as soon as it is rendered, and keep
+ *   rendering the next one while the current one is speaking. Starts in about a
+ *   second. It cannot outrun the model: on a device slower than real time the
+ *   gaps are audible, and that is accepted rather than worked around.
+ * - `file` (Export): render the whole passage first, then hand over a WAV in an
+ *   <audio> element. No gaps, but nothing to hear until it finishes.
  */
-function decideMode(text) {
-  const forcedMode = params.get('mode');
-  if (forcedMode === 'file' || forcedMode === 'stream') return forcedMode;
-  const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-  const weak = !isolated || hw < 8;
-  return (mobile || weak) && text.length <= 600 ? 'file' : 'stream';
-}
-
-async function play() {
+async function play(mode) {
   if (running) return;
   const text = $('text').value.trim();
   if (!text) {
@@ -446,9 +455,13 @@ async function play() {
     return;
   }
 
-  const mode = decideMode(text);
-  $('go').disabled = true;
+  setBusy(true);
   stopped = false;
+  // Two takes at once is never what the user meant: silence whatever is still
+  // playing before starting the next run.
+  player?.stop();
+  const audioEl = $('audio');
+  if (!audioEl.paused) audioEl.pause();
   $('out').classList.remove('show');
   const abort = new AbortController();
   running = { chunks: 0, abort };
@@ -471,12 +484,15 @@ async function play() {
     const tReady = performance.now();
     const initMs = tReady - t0;
     const gen = s.synthesizeStream(text, {
+      // One chunk per sentence, so the pause lands on the writer's punctuation
+      // instead of an arbitrary character count.
+      chunking: 'sentence',
       // A short first chunk only helps when it is played immediately.
       firstLimit: mode === 'stream' ? Number(params.get('first') ?? 22) : 0,
       signal: abort.signal,
     });
 
-    say(mode === 'file' ? 'အသံ ထုတ်နေတယ် …' : 'အသံ ထုတ်နေတယ် …');
+    say(mode === 'stream' ? 'ဖတ်နေတယ် …' : 'အသံ ထုတ်နေတယ် …');
     $('stop').disabled = false;
 
     for (;;) {
@@ -512,7 +528,7 @@ async function play() {
       return;
     }
 
-    const file = publish(parts, { replay: mode === 'file' });
+    const file = publish(parts);
     const wall = performance.now() - t0;
     const synthMs = performance.now() - tReady;
     const rtf = synthMs / 1000 / Math.max(audioSeconds, 0.001);
@@ -562,12 +578,12 @@ async function play() {
     document.title = `error ${msg}`;
   } finally {
     running = null;
-    $('go').disabled = false;
-    if (!player?.playing) $('stop').disabled = true;
+    setBusy(false);
   }
 }
 
-$('go').onclick = play;
+$('read').onclick = () => play('stream');
+$('export').onclick = () => play('file');
 $('stop').onclick = () => {
   stopped = true;
   running?.abort.abort();
@@ -652,7 +668,6 @@ async function selectVoice(id) {
 
   touchVoice(id);
   const cached = await isCached(Object.values(FILES).map((f) => f.url));
-  $('go').textContent = cached ? 'ဖတ်ပါ' : 'ဒေါင်းလုပ် · ဖတ်ပါ';
   say(
     cached
       ? `<span class="ok">${voiceLabel(id)}</span> · cache ထဲမှာ ရှိပြီး`
@@ -718,11 +733,9 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 touchVoice(VOICE);
 isCached(Object.values(FILES).map((f) => f.url)).then((cached) => {
   if (!cached) {
-    $('go').textContent = 'ဒေါင်းလုပ် · ဖတ်ပါ';
     say(`${bytesLabel(TOTAL_WEIGHT)} မော်ဒယ်ကို ပထမအကြိမ် ဒေါင်းလုပ်ရမယ် · <b>ဖတ်ပါ</b> နှိပ်ရင် စမယ်`);
     return;
   }
-  $('go').textContent = 'ဖတ်ပါ';
   // `?prewarm=0` keeps the cache check but skips building the sessions. It exists
   // so the UI can be inspected without 181 MB of weights entering the tab.
   if (params.get('prewarm') === '0') return;
@@ -731,7 +744,9 @@ isCached(Object.values(FILES).map((f) => f.url)).then((cached) => {
     .catch((err) => say(`<span class="bad">${err.message}</span>`));
 });
 
-if (params.get('auto')) setTimeout(() => $('go').click(), 80);
+// `?auto=read` / `?auto=export` runs one action for the headless harnesses.
+const auto = params.get('auto');
+if (auto) setTimeout(() => (auto === 'export' ? $('export') : $('read')).click(), 80);
 </script>
 </body>
 </html>

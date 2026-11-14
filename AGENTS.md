@@ -57,7 +57,7 @@ Break one of these and the app silently degrades instead of failing loudly.
    Build-time tools (esbuild, typescript, puppeteer-core) are fine.
 9. **Keep it one page.** The user asked explicitly for fewer choices. Do not add pages, tabs or
    mode switches to the shipped UI; put tools under `web/dev/` (never copied into `site/`) and
-   add query params (`?mode=file`, `?voice=`, `?text=`, `?threads=`, `?prewarm=0`) for anything a
+   add query params (`?voice=`, `?text=`, `?auto=`, `?threads=`, `?prewarm=0`) for anything a
    developer needs.
    The one exception is the voice row between the text box and the button: four voices are
    content, not a mode, and they are always on screen rather than hidden behind a control.
@@ -126,17 +126,24 @@ not the TypeScript. Editing `web/*.html` needs no build, only a refresh (or `pac
 through `voice.json`'s vocab to token ids.
 
 **Chunking** (`inference.ts: planChunks`): text is split at sentence/clause boundaries under
-200 characters. For streaming, the *first* chunk is cut short at whitespace (default 22 chars)
-so audio starts in about a second; `firstLimit: 0` disables that and matches `synthesize()`.
+200 characters. `chunking: 'sentence'` (what the page uses) keeps one chunk per sentence so the
+pause lands on the writer's punctuation; `chunking: 'reference'` (the library default) packs
+sentences up to 200 characters exactly like Python's `split_speech()`, which is what keeps
+sample counts identical for `verify_audio.py`. Do not switch the default. For streaming, the
+*first* chunk is cut short at whitespace (default 22 chars) so audio starts in about a second;
+`firstLimit: 0` disables that.
 
-**Two playback modes, chosen automatically** (`decideMode()` in `web/index.html`):
+**Two buttons, two behaviours** (`web/index.html`):
 
-- `stream` — push each chunk to `StreamPlayer`, which schedules it on the audio clock ahead of
-  the previous one. Fast first audio. Cannot outrun the model: when generation is slower than
-  playback the gaps are audible. This is unavoidable, not a bug.
-- `file` — accumulate every chunk, then play one WAV `Blob` in an `<audio controls>` element.
-  No gaps, seekable. Chosen for phones, un-isolated pages (`threads=1`) and < 8 cores, for
-  passages up to 600 characters.
+- **ဖတ်ပါ** (`stream`) — push each chunk to `StreamPlayer`, which schedules it on the audio clock
+  ahead of the previous one, and keep rendering while the last one plays. Fast first audio.
+  Cannot outrun the model: when generation is slower than playback the gaps are audible. This
+  is accepted by the user, not a bug — do not "fix" it by falling back to file mode.
+- **WAV ထုတ်ပါ** (`file`) — accumulate every chunk, then publish a WAV `Blob` in an
+  `<audio controls>` element. It must **not** autoplay: the point is to hand over a file.
+
+There is no automatic mode selection any more. `?auto=read` / `?auto=export` drives one button
+for the headless harnesses.
 
 Both paths end the same way: samples are merged, trailing/leading silence trimmed, peak
 normalised to 0.92 (the model sits at ~0.11 RMS), encoded with `encodeWav()`, and exposed as a

@@ -35,7 +35,8 @@ try {
   page.on('pageerror', (e) => logs.push(`pageerror: ${e.message}`));
 
   const target = new URL(url);
-  target.searchParams.set('auto', '1');
+  // `?auto=read` runs the Realtime button; `?auto=export` the Export one.
+  if (!target.searchParams.has('auto')) target.searchParams.set('auto', 'read');
   // The page starts with an empty box, so the harness has to supply the sentence
   // it wants spoken. `?text=` is the same switch a shared link would use.
   if (!target.searchParams.has('text')) {

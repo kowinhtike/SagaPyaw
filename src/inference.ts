@@ -44,6 +44,18 @@ export interface SynthesizeOptions {
   limit?: number;
 }
 
+/**
+ * How the passage is cut into chunks.
+ *
+ * - `reference` packs sentences together up to `limit`, matching Python's
+ *   `split_speech()`. Sample counts stay identical to the reference, so this is
+ *   what `synthesize()` and `tools/verify_audio.py` use.
+ * - `sentence` keeps one chunk per sentence (or clause), which is what a
+ *   listener wants: the pause falls where the writer put it instead of at an
+ *   arbitrary 200-character mark.
+ */
+export type Chunking = 'reference' | 'sentence';
+
 export interface StreamOptions extends SynthesizeOptions {
   /**
    * Abort mid-passage. Checked before each chunk and between the encoder and
@@ -57,6 +69,8 @@ export interface StreamOptions extends SynthesizeOptions {
    * mid-syllable. `0` disables the short first chunk. Default: 22.
    */
   firstLimit?: number;
+  /** Default: `reference`. */
+  chunking?: Chunking;
 }
 
 /** One synthesised chunk, ready to be scheduled on an audio timeline. */
@@ -87,15 +101,13 @@ function cpLength(s: string): number {
 }
 
 /**
- * Split a passage into chunks for streaming, with a shorter first chunk so the
- * listener hears something sooner.
+ * Cut the first chunk short so the listener hears something sooner.
  *
  * The cut point is always whitespace: Burmese syllables can span several code
  * points (consonant + medials + vowel signs), and slicing one in half would feed
  * the G2P a broken cluster.
  */
-export function planChunks(text: string, limit = 200, firstLimit = 22): string[] {
-  const pieces = splitSpeech(text, limit);
+function shortenFirst(pieces: string[], firstLimit: number): string[] {
   if (pieces.length === 0 || firstLimit <= 0) return pieces;
 
   const first = pieces[0];
@@ -116,6 +128,45 @@ export function planChunks(text: string, limit = 200, firstLimit = 22): string[]
   const tail = chars.slice(cut).join('').trim();
   if (!head || !tail) return pieces;
   return [head, tail, ...pieces.slice(1)];
+}
+
+/**
+ * Split a passage into chunks for streaming, with a shorter first chunk so the
+ * listener hears something sooner.
+ */
+export function planChunks(
+  text: string,
+  limit = 200,
+  firstLimit = 22,
+  chunking: Chunking = 'reference',
+): string[] {
+  if (chunking === 'sentence') return planSentenceChunks(text, limit, firstLimit);
+  return shortenFirst(splitSpeech(text, limit), firstLimit);
+}
+
+/**
+ * One chunk per sentence, so the pause lands where the writer put it.
+ *
+ * `splitSpeech()` packs sentences together up to `limit` characters, which is
+ * right for matching the Python reference but wrong for listening: a 200-char
+ * chunk can hold three sentences, and the boundary that then gets the 200 ms
+ * inter-chunk gap is an arbitrary one. Here the boundary is always a terminator.
+ *
+ * The exception is a fragment too short to be worth its own encode/decode pass
+ * (a bare "ဟုတ်ကဲ့။"): it is joined to a neighbour, still inside the budget.
+ */
+export function planSentenceChunks(text: string, limit = 200, firstLimit = 0, minUnit = 12): string[] {
+  const merged: string[] = [];
+  for (const unit of speechUnits(text, limit)) {
+    const last = merged.length ? merged[merged.length - 1] : undefined;
+    const joinable =
+      last !== undefined &&
+      (cpLength(last) < minUnit || cpLength(unit) < minUnit) &&
+      cpLength(last) + 1 + cpLength(unit) <= limit;
+    if (joinable) merged[merged.length - 1] = `${last} ${unit}`;
+    else merged.push(unit);
+  }
+  return shortenFirst(merged, firstLimit);
 }
 
 const SENTENCE_END = new Set<string>(['\u104b', '!', '?', '\u2026', '\n']);
@@ -140,28 +191,41 @@ function splitAfter(text: string, terminators: Set<string>): string[] {
   return parts;
 }
 
-/** Port of `split_speech()`: keeps every chunk under `limit` characters. */
-export function splitSpeech(text: string, limit = 200): string[] {
+/** Break a clause longer than `limit` at spaces, never mid-syllable. */
+function breakLong(clause: string, limit: number): string[] {
+  const out: string[] = [];
+  let rest = clause;
+  while (Array.from(rest).length > limit) {
+    const chars = Array.from(rest);
+    let cut = -1;
+    for (let i = limit - 1; i >= 0; i -= 1) {
+      if (chars[i] === ' ') {
+        cut = i;
+        break;
+      }
+    }
+    if (cut <= 0) cut = limit;
+    out.push(chars.slice(0, cut).join(''));
+    rest = chars.slice(cut).join('').trim();
+  }
+  if (rest.trim()) out.push(rest.trim());
+  return out;
+}
+
+/** Sentence → clause → over-long remainder, in reading order. */
+function speechUnits(text: string, limit: number): string[] {
   const units: string[] = [];
   for (const sentence of splitAfter(text, SENTENCE_END)) {
-    for (const rawClause of splitAfter(sentence, CLAUSE_END)) {
-      let clause = rawClause;
-      while (Array.from(clause).length > limit) {
-        const chars = Array.from(clause);
-        let cut = -1;
-        for (let i = limit - 1; i >= 0; i -= 1) {
-          if (chars[i] === ' ') {
-            cut = i;
-            break;
-          }
-        }
-        if (cut <= 0) cut = limit;
-        units.push(chars.slice(0, cut).join(''));
-        clause = chars.slice(cut).join('').trim();
-      }
-      if (clause.trim()) units.push(clause.trim());
+    for (const clause of splitAfter(sentence, CLAUSE_END)) {
+      units.push(...breakLong(clause, limit));
     }
   }
+  return units;
+}
+
+/** Port of `split_speech()`: keeps every chunk under `limit` characters. */
+export function splitSpeech(text: string, limit = 200): string[] {
+  const units = speechUnits(text, limit);
 
   const pieces: string[] = [];
   let current = '';
@@ -368,9 +432,16 @@ export class SagaSynthesizer {
     text: string,
     options: StreamOptions = {},
   ): AsyncGenerator<StreamChunk> {
-    const { normalizeNumbers = true, gapSamples = 4800, limit = 200, firstLimit = 22, signal } = options;
+    const {
+      normalizeNumbers = true,
+      gapSamples = 4800,
+      limit = 200,
+      firstLimit = 22,
+      chunking = 'reference',
+      signal,
+    } = options;
     const spoken = normalizeNumbers ? verbalize(text) : text;
-    const pieces = planChunks(spoken, limit, firstLimit);
+    const pieces = planChunks(spoken, limit, firstLimit, chunking);
     if (!pieces.length) throw new Error('text must contain speech');
 
     for (let index = 0; index < pieces.length; index += 1) {

@@ -103,8 +103,14 @@ try {
   check('the box starts empty', emptyState.value === '', JSON.stringify(emptyState.value));
   check('the hint asks for the text to speak', /အသံထုတ်လိုသော/.test(emptyState.placeholder), emptyState.placeholder);
 
-  // With nothing typed, ဖတ်ပါ must prompt instead of starting an 181 MB download.
-  await page.click('#go');
+  // Both actions must exist, and neither may start a download with no text.
+  const actions = await page.evaluate(() => ({
+    read: document.getElementById('read')?.innerText.trim(),
+    export: document.getElementById('export')?.innerText.trim(),
+  }));
+  check('there are two actions', actions.read === 'ဖတ်ပါ' && /WAV/.test(actions.export ?? ''), `${actions.read} / ${actions.export}`);
+
+  await page.click('#read');
   await new Promise((r) => setTimeout(r, 150));
   const afterEmptyClick = await page.evaluate(async () => ({
     status: document.getElementById('status').innerText,
@@ -173,11 +179,14 @@ try {
     search: location.search,
     status: document.getElementById('status').innerText,
     outHidden: !document.getElementById('out').classList.contains('show'),
-    go: document.getElementById('go').innerText,
+    // Switching must leave both actions usable: a stuck `disabled` here is the
+    // classic symptom of a flag that was never cleared.
+    readDisabled: document.getElementById('read').disabled,
+    exportDisabled: document.getElementById('export').disabled,
   }));
   check('URL carries ?voice=thazin', afterSwitch.search.includes('voice=thazin'), afterSwitch.search);
   check('output is reset on switch', afterSwitch.outHidden);
-  check('cached voice needs no download', afterSwitch.go === 'ဖတ်ပါ', afterSwitch.go);
+  check('both actions stay enabled after a switch', !afterSwitch.readDisabled && !afterSwitch.exportDisabled);
   check('status names the voice', afterSwitch.status.includes('Thazin'), afterSwitch.status.replace(/\s+/g, ' '));
 
   /* ------------------------------------ 6. the warning goes away when it is done */

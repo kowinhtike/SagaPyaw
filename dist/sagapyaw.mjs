@@ -1322,8 +1322,7 @@ function phonemizeDetailed(text) {
 function cpLength(s) {
   return Array.from(s).length;
 }
-function planChunks(text, limit = 200, firstLimit = 22) {
-  const pieces = splitSpeech(text, limit);
+function shortenFirst(pieces, firstLimit) {
   if (pieces.length === 0 || firstLimit <= 0) return pieces;
   const first = pieces[0];
   if (cpLength(first) <= firstLimit) return pieces;
@@ -1342,6 +1341,20 @@ function planChunks(text, limit = 200, firstLimit = 22) {
   if (!head || !tail) return pieces;
   return [head, tail, ...pieces.slice(1)];
 }
+function planChunks(text, limit = 200, firstLimit = 22, chunking = "reference") {
+  if (chunking === "sentence") return planSentenceChunks(text, limit, firstLimit);
+  return shortenFirst(splitSpeech(text, limit), firstLimit);
+}
+function planSentenceChunks(text, limit = 200, firstLimit = 0, minUnit = 12) {
+  const merged = [];
+  for (const unit of speechUnits(text, limit)) {
+    const last = merged.length ? merged[merged.length - 1] : void 0;
+    const joinable = last !== void 0 && (cpLength(last) < minUnit || cpLength(unit) < minUnit) && cpLength(last) + 1 + cpLength(unit) <= limit;
+    if (joinable) merged[merged.length - 1] = `${last} ${unit}`;
+    else merged.push(unit);
+  }
+  return shortenFirst(merged, firstLimit);
+}
 var SENTENCE_END = /* @__PURE__ */ new Set(["\u104B", "!", "?", "\u2026", "\n"]);
 var CLAUSE_END = /* @__PURE__ */ new Set(["\u104A"]);
 function splitAfter(text, terminators) {
@@ -1358,27 +1371,36 @@ function splitAfter(text, terminators) {
   if (cur) parts.push(cur);
   return parts;
 }
-function splitSpeech(text, limit = 200) {
+function breakLong(clause, limit) {
+  const out = [];
+  let rest = clause;
+  while (Array.from(rest).length > limit) {
+    const chars = Array.from(rest);
+    let cut = -1;
+    for (let i = limit - 1; i >= 0; i -= 1) {
+      if (chars[i] === " ") {
+        cut = i;
+        break;
+      }
+    }
+    if (cut <= 0) cut = limit;
+    out.push(chars.slice(0, cut).join(""));
+    rest = chars.slice(cut).join("").trim();
+  }
+  if (rest.trim()) out.push(rest.trim());
+  return out;
+}
+function speechUnits(text, limit) {
   const units = [];
   for (const sentence of splitAfter(text, SENTENCE_END)) {
-    for (const rawClause of splitAfter(sentence, CLAUSE_END)) {
-      let clause = rawClause;
-      while (Array.from(clause).length > limit) {
-        const chars = Array.from(clause);
-        let cut = -1;
-        for (let i = limit - 1; i >= 0; i -= 1) {
-          if (chars[i] === " ") {
-            cut = i;
-            break;
-          }
-        }
-        if (cut <= 0) cut = limit;
-        units.push(chars.slice(0, cut).join(""));
-        clause = chars.slice(cut).join("").trim();
-      }
-      if (clause.trim()) units.push(clause.trim());
+    for (const clause of splitAfter(sentence, CLAUSE_END)) {
+      units.push(...breakLong(clause, limit));
     }
   }
+  return units;
+}
+function splitSpeech(text, limit = 200) {
+  const units = speechUnits(text, limit);
   const pieces = [];
   let current = "";
   for (const unit of units) {
@@ -1551,9 +1573,16 @@ var SagaSynthesizer = class _SagaSynthesizer {
    * about −27 dB, inaudible but measurable).
    */
   async *synthesizeStream(text, options = {}) {
-    const { normalizeNumbers = true, gapSamples = 4800, limit = 200, firstLimit = 22, signal } = options;
+    const {
+      normalizeNumbers = true,
+      gapSamples = 4800,
+      limit = 200,
+      firstLimit = 22,
+      chunking = "reference",
+      signal
+    } = options;
     const spoken = normalizeNumbers ? verbalize(text) : text;
-    const pieces = planChunks(spoken, limit, firstLimit);
+    const pieces = planChunks(spoken, limit, firstLimit, chunking);
     if (!pieces.length) throw new Error("text must contain speech");
     for (let index = 0; index < pieces.length; index += 1) {
       if (signal?.aborted) return;
@@ -1615,6 +1644,7 @@ export {
   phonemize,
   phonemizeDetailed,
   planChunks,
+  planSentenceChunks,
   prepareNames,
   replaceNames,
   resetMissingEnglishCount,
