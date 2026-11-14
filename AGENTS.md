@@ -17,8 +17,9 @@ the model's Python text frontend (G2P) that is verified to be bit-identical to t
 - Model: `YeeNyunn/nara-mini-v1` (Apache-2.0), Kokoro-style encoder + decoder, 24 kHz mono.
 - Product: one page (`web/index.html`), one button. Everything else is tooling.
 - The UI copy is Burmese. Keep it that way unless asked.
-- `web/index.html` credits the model repo in a footer; that link is the only outbound one on
-  the page and should stay.
+- `web/index.html` has a two-line footer: the model credit (link to the Hugging Face repo —
+  that is the Apache-2.0 attribution, keep it) and the author line, where `kowinhtike` links to
+  this repo. Those two are the only outbound links on the page.
 
 ## Hard rules
 
