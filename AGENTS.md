@@ -64,11 +64,16 @@ Break one of these and the app silently degrades instead of failing loudly.
    Build-time tools (esbuild, typescript, puppeteer-core) are fine.
 9. **Keep it one page.** The user asked explicitly for fewer choices. Do not add pages, tabs or
    mode switches to the shipped UI; put tools under `web/dev/` (never copied into `site/`) and
-   add query params (`?voice=`, `?text=`, `?auto=`, `?threads=`, `?prewarm=0`, `?sw=0`) for
+   add query params (`?voice=`, `?text=`, `?auto=`, `?threads=`, `?prewarm=0`, `?sw=0`,
+   `?wav=0`) for
    anything a developer needs. The dev panel (`?dev=1`) has a thread picker that sets
    `?threads=` and reloads — on a big.LITTLE phone 3 threads can beat 4, because the fourth
-   worker lands on a little core and the main thread waits on it. Do not hardcode a different
-   default without measuring on the device that matters.
+   worker lands on a little core and the main thread waits on it. The picker lists 1 up to the
+   reported core count (capped at 8, never fewer than 4), so a phone that reports 8 cores can be
+   asked to try 5 or 6; the shipped default stays `Math.min(4, hw)` and is not changed by this.
+   Measured on a 10-core desktop over 89 s of audio: 4 threads RTF 0.52, 6 threads 0.47 (~11%),
+   which is why the extra range exists — the default is a guess until a device is measured.
+   Do not hardcode a different default without measuring on the device that matters.
    The one exception is the voice row between the text box and the button: four voices are
    content, not a mode, and they are always on screen rather than hidden behind a control.
 
@@ -173,6 +178,17 @@ for the headless harnesses.
 Both paths end the same way: samples are merged, trailing/leading silence trimmed, peak
 normalised to 0.92 (the model sits at ~0.11 RMS), encoded with `encodeWav()`, and exposed as a
 download. So "streaming" and "download" are always the same take.
+
+**The final WAV is not what makes realtime fall behind.** It is tempting to blame it — the CPU
+visibly drops when the encode finishes — but the drop is ONNX inference ending, not the encode.
+The encode runs after the last sentence is already rendered and scheduled on the audio clock, so
+no sentence ever waits for it, and it costs 30 ms for 89 s of audio (measured; the same run with
+`?wav=0` was 1.2 s *slower*, i.e. inside run-to-run noise). Keep it: on a phone a 160 s passage
+takes minutes to synthesise, so the WAV a stream run hands over for free is the cheapest
+gap-free file that user will ever get, and dropping it means paying for the same synthesis
+twice. `?wav=0` skips it anyway, for one real reason — memory. The kept chunks, the merged copy
+and the encoded bytes are about 3× the audio, so ten minutes of speech holds ~140 MB at once;
+that is the case worth switching it off for, not speed.
 
 **Split weights** (`model-store.js: loadParts`): hosts cap per-file size (Cloudflare Pages:
 25 MiB; the decoder is 107 MB). `pack --split` writes `decoder.onnx.p00…p05` plus

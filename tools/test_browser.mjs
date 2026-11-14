@@ -67,6 +67,13 @@ try {
     phon: document.getElementById('phon').innerText,
     stats: document.getElementById('stats').innerText,
     synth: window.__lastSynth ?? null,
+    outShown: document.getElementById('out').classList.contains('show'),
+    // `?auto=` turns the dev panel on, so the thread picker is on screen here.
+    thr: document.getElementById('thr')
+      ? [...document.getElementById('thr').options].map((o) => Number(o.value))
+      : null,
+    thrPicked: document.getElementById('thr') ? Number(document.getElementById('thr').value) : null,
+    cores: navigator.hardwareConcurrency,
     isolated: self.crossOriginIsolated,
     labels: window.__labels ?? [],
     hint: document.getElementById('hint').hidden ? null : document.getElementById('hint').textContent.trim(),
@@ -116,7 +123,42 @@ try {
       (result.hint ? ` · ${result.hint.slice(0, 40)}` : ''),
   );
 
-  if (!result.title.startsWith('ok ') || !toggled || !back || !hintOk) process.exitCode = 1;
+  // Realtime builds a WAV by default: the model has already done the work, and
+  // that file is how a listener downloads without paying for a second synthesis.
+  // Export must build one, because the file is the whole point of export.
+  // `?wav=0` skips it, for the memory case.
+  const expectsWav = (synth.mode ?? '') === 'file' || target.searchParams.get('wav') !== '0';
+  const hasWav = (synth.bytes ?? 0) > 0 && result.outShown;
+  const wavOk = Boolean(synth.stopped) || hasWav === expectsWav;
+  console.log(
+    `wav      ${wavOk ? 'ok' : 'FAIL'} · ${expectsWav ? 'built' : 'skipped'}, ` +
+      `${hasWav ? `${synth.bytes} bytes, panel shown` : 'no file'}` +
+      ` · encode ${(synth.publishMs ?? 0).toFixed(0)} ms`,
+  );
+
+  // The picker has to reach the core count, not stop at the shipped default:
+  // trying 5 or 6 on a phone that reports 8 cores is the only way to find out
+  // whether the extra workers help or land on efficiency cores. It must still
+  // offer 1-4 on a small machine, and it must show the thread count in use.
+  // Without cross-origin isolation there is no picker at all, because ORT
+  // cannot start a second thread.
+  const wantMax = Math.min(8, Math.max(4, result.cores ?? 4));
+  const wantThr = Array.from({ length: wantMax }, (_, i) => i + 1);
+  // The chip reads "4 threads" when isolated and "threads 1" when not, so take
+  // the number from either side rather than assuming one word order.
+  const envMatch = /(\d+)\s*threads|threads\s*(\d+)/.exec(result.env);
+  const inUse = Number(envMatch?.[1] ?? envMatch?.[2] ?? -1);
+  const thrOk = result.isolated
+    ? Array.isArray(result.thr) && result.thr.join() === wantThr.join() && result.thrPicked === inUse
+    : result.thr === null;
+  console.log(
+    `threads  ${thrOk ? 'ok' : 'FAIL'} · ` +
+      (result.isolated
+        ? `picker 1-${wantMax} on ${result.cores} cores, selected ${result.thrPicked}, running ${inUse}`
+        : 'no picker without cross-origin isolation'),
+  );
+
+  if (!result.title.startsWith('ok ') || !toggled || !back || !hintOk || !wavOk || !thrOk) process.exitCode = 1;
 } finally {
   await browser.close();
 }

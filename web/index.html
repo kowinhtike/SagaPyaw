@@ -490,6 +490,15 @@ async function play(mode) {
   let audioSeconds = 0;
   let totalTokens = 0;
   let total = 0;
+  // Realtime does not need a WAV to be heard, but building one is cheap and it
+  // is how a listener gets a file without paying for the synthesis twice — the
+  // model has already done the work by then. Measured: 30 ms to encode 89 s of
+  // audio on a desktop, which is inside the run-to-run noise of the run itself.
+  // So the WAV is not what makes a long passage fall behind; that is RTF.
+  // `?wav=0` skips it, which matters only for memory: the kept chunks plus the
+  // merged copy plus the encoded bytes are about 3x the audio, so ten minutes of
+  // speech is ~140 MB held at once.
+  const wantWav = mode === 'file' || params.get('wav') !== '0';
   const parts = [];
   $('phon').textContent = '';
   $('stats').innerHTML = '';
@@ -517,7 +526,8 @@ async function play(mode) {
       const { value: chunk, done } = await gen.next();
       if (done) break;
       if (stopped) break;
-      parts.push(chunk.samples);
+      // With `?wav=0` nothing will read this copy back, so do not keep it.
+      if (wantWav) parts.push(chunk.samples);
       if (DEV) $('phon').textContent += `${chunk.phon} `;
       audioSeconds += chunk.samples.length / SR;
       totalTokens += chunk.tokens;
@@ -541,12 +551,18 @@ async function play(mode) {
       }
     }
 
-    if (!parts.length) {
+    // Counted from the loop, not from `parts`: in Realtime mode nothing is kept
+    // there, so an empty `parts` means "nothing to encode", not "nothing ran".
+    if (!running.chunks) {
       say('<span class="warn">ရပ်လိုက်တယ်</span>');
       return;
     }
 
-    const file = publish(parts);
+    const tPublish = performance.now();
+    const file = wantWav ? publish(parts) : null;
+    const publishMs = performance.now() - tPublish;
+    const seconds = file ? file.seconds : audioSeconds;
+    const bytes = file ? file.bytes : 0;
     const wall = performance.now() - t0;
     const synthMs = performance.now() - tReady;
     const rtf = synthMs / 1000 / Math.max(audioSeconds, 0.001);
@@ -554,7 +570,7 @@ async function play(mode) {
     say(
       stopped
         ? '<span class="warn">ရပ်လိုက်တယ်</span>'
-        : `<span class="ok">ပြီးပါပြီ</span> · ${file.seconds.toFixed(1)}s အသံ`,
+        : `<span class="ok">ပြီးပါပြီ</span> · ${seconds.toFixed(1)}s အသံ`,
     );
     // Realtime cannot beat the device. When the measurement says it fell behind,
     // say so once, at the moment it matters, and name the mode that does not
@@ -571,29 +587,31 @@ async function play(mode) {
     if (DEV) {
       $('stats').innerHTML =
         (firstAudioMs === null ? '' : `<span>ပထမအသံ <b>${(firstAudioMs / 1000).toFixed(2)}s</b></span>`) +
-        `<span>အသံ <b>${file.seconds.toFixed(2)}s</b></span>` +
+        `<span>အသံ <b>${seconds.toFixed(2)}s</b></span>` +
         `<span>RTF <b>${rtf.toFixed(2)}</b></span>` +
         `<span>ပြင်ဆင် <b>${secs(initMs)}</b></span>` +
         `<span>ပိုင်း <b>${total}</b></span>` +
-        `<span>ဖိုင် <b>${bytesLabel(file.bytes)}</b></span>` +
+        `<span>ဖိုင် <b>${file ? bytesLabel(bytes) : '—'}</b></span>` +
+        `<span>WAV <b>${secs(publishMs)}</b></span>` +
         `<span>ကြာချိန် <b>${secs(wall)}</b></span>`;
     }
 
     window.__lastSynth = {
       mode,
-      seconds: file.seconds,
-      bytes: file.bytes,
+      seconds,
+      bytes,
       ms: wall,
       initMs,
       synthMs,
+      publishMs,
       firstAudioMs: firstAudioMs ?? null,
       chunks: total,
       tokens: totalTokens,
-      samples: Math.round(file.seconds * SR),
-      gain: file.gain,
+      samples: Math.round(seconds * SR),
+      gain: file ? file.gain : null,
       stopped,
     };
-    document.title = `ok ${file.seconds.toFixed(2)}s`;
+    document.title = `ok ${seconds.toFixed(2)}s`;
   } catch (err) {
     const msg = String(err?.message ?? err);
     const missing = /HTTP 404/.test(msg);
@@ -731,7 +749,13 @@ async function refreshStorage() {
     // A picker, not a fixed number: on a big.LITTLE phone 3 threads can beat 4,
     // because the fourth worker lands on a little core and the main thread waits
     // on it. The only way to know is to try both on the device in hand.
-    const threadOptions = [1, 2, 3, 4]
+    // The list goes up to the core count, not to the default: the shipped
+    // default stays `Math.min(4, hw)`, but a phone that reports 8 cores can be
+    // asked to try 5 or 6 from here, which is the one way to find out whether
+    // the extra workers help or land on efficiency cores. Capped at 8 because
+    // past that the workers contend more than they compute.
+    const maxThreads = Math.min(8, Math.max(4, hw));
+    const threadOptions = Array.from({ length: maxThreads }, (_, i) => i + 1)
       .map((n) => `<option value="${n}"${n === ort.env.wasm.numThreads ? ' selected' : ''}>${n}</option>`)
       .join('');
     parts.push(
