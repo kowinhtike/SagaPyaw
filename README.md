@@ -1,6 +1,6 @@
 # SagaPyaw · စကားပြော
 
-**[→ Live demo](https://sagapyaw.iamwinhtike.workers.dev)** · first visit downloads 181 MB of
+**[→ Live demo](https://sagapyaw.sagapyaw.workers.dev)** · first visit downloads 181 MB of
 weights once, then works offline.
 
 Burmese text-to-speech that runs **entirely in the browser** — no backend, no API keys, no
